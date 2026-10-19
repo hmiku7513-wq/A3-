@@ -1,0 +1,28 @@
+services:
+  a3:
+    build: .
+    container_name: a3-game
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3213
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: a3-caddy
+    restart: unless-stopped
+    depends_on:
+      - a3
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?请先设置 DOMAIN，例如 DOMAIN=a3.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

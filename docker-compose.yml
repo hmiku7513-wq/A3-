@@ -1,0 +1,10 @@
+services:
+  a3:
+    build: .
+    container_name: a3-game
+    restart: unless-stopped
+    ports:
+      - "3213:3213"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3213

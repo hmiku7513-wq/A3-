@@ -1,0 +1,4 @@
+{$DOMAIN} {
+  encode gzip
+  reverse_proxy a3:3213
+}

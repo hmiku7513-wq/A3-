@@ -1,0 +1,16 @@
+{
+  "name": "a3-card-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A3 —— 四人在线扑克牌游戏",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test \"tests/*.test.js\"",
+    "test:ui": "node scripts/ui-smoke.js",
+    "test:ui:tribute": "node scripts/ui-tribute-smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
