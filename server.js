@@ -18,6 +18,10 @@ const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const LOBBY_DISCONNECT_GRACE_MS = 60_000;
 const OFFLINE_AUTO_PLAY_MS = 10_000;
 const NO_MOVE_AUTO_PASS_MS = 3_000;
+
+function randomAutoPassDelay() {
+  return 2500 + Math.floor(Math.random() * 1001);
+}
 const TRIBUTE_OFFLINE_AUTO_MS = 4_000;
 const TRIBUTE_COMPLETE_DELAY_MS = 1_800;
 const DEFAULT_TURN_SECONDS = 20;
@@ -190,6 +194,8 @@ function buildLobbyState(room, viewer) {
       canStart,
       tributeEnabled: Boolean(room.tributeEnabled),
       counterEnabled: Boolean(room.counterEnabled),
+      borrowWindEnabled: Boolean(room.borrowWindEnabled),
+      scoringEnabled: room.scoringEnabled !== false,
       turnSeconds: room.turnSeconds,
       tributeSeconds: room.tributeSeconds,
       canEditSettings: viewer.id === room.hostId,
@@ -242,6 +248,7 @@ function scheduleAuto(room) {
   const deadlineRemaining = room.turnDeadline
     ? Math.max(0, room.turnDeadline - Date.now())
     : room.turnSeconds * 1000;
+  const dealGrace = Math.max(0, (room.dealGraceUntil || 0) - Date.now());
   let kind = null;
   let delay = 0;
   if (player?.isBot) {
@@ -253,15 +260,16 @@ function scheduleAuto(room) {
   } else if (!player?.connected) {
     kind = 'offline';
     delay = noLegal
-      ? Math.min(NO_MOVE_AUTO_PASS_MS, deadlineRemaining)
+      ? Math.min(randomAutoPassDelay(), deadlineRemaining)
       : Math.min(OFFLINE_AUTO_PLAY_MS, deadlineRemaining);
   } else if (noLegal) {
     kind = 'no_moves';
-    delay = NO_MOVE_AUTO_PASS_MS;
+    delay = Math.min(randomAutoPassDelay(), deadlineRemaining);
   } else {
     kind = 'timeout';
     delay = deadlineRemaining;
   }
+  if (kind) delay += dealGrace;
 
   if (
     room.auto &&
@@ -336,7 +344,19 @@ function scheduleAuto(room) {
   }, delay);
 }
 
+function finalizeScores(room) {
+  if (!room.scoringEnabled || !room.game?.result) return;
+  if (room.scoreAppliedRound === room.round) return;
+  const deltas = room.game.result.scoreDeltas || [0, 0, 0, 0];
+  room.scores = room.scores || [0, 0, 0, 0];
+  for (let seat = 0; seat < 4; seat += 1) {
+    room.scores[seat] = Number(room.scores[seat] || 0) + Number(deltas[seat] || 0);
+  }
+  room.scoreAppliedRound = room.round;
+}
+
 function buildGameState(room, viewer) {
+  if (room.phase === 'ended') finalizeScores(room);
   const game = room.game;
   const view = game.getView(viewer.seat);
   const { remainingCounts: ignoredRemaining, ...publicView } = view;
@@ -356,6 +376,11 @@ function buildGameState(room, viewer) {
   });
 
   const allConnected = room.players.length === 4 && room.players.every((player) => player.connected);
+  const yourIdentityCards = (game.identityCardsBySeat?.get(viewer.seat) || []).map((card) => ({
+    id: card.id,
+    rank: card.rank,
+    suit: card.suit,
+  }));
   const autoAction =
     room.auto && room.auto.kind === 'offline'
       ? {
@@ -369,6 +394,10 @@ function buildGameState(room, viewer) {
     type: 'state',
     room: {
       ...publicView,
+      yourRole: {
+        ...(publicView.yourRole || {}),
+        cards: yourIdentityCards,
+      },
       code: room.code,
       phase: room.phase,
       singlePlayer: Boolean(room.singlePlayer),
@@ -378,6 +407,24 @@ function buildGameState(room, viewer) {
       autoAction,
       tributeEnabled: Boolean(room.tributeEnabled),
       counterEnabled: Boolean(room.counterEnabled),
+      borrowWindEnabled: Boolean(room.borrowWindEnabled),
+      scoringEnabled: room.scoringEnabled !== false,
+      scores: [...(room.scores || [0, 0, 0, 0])],
+      yourScore: Number(room.scores?.[viewer.seat] || 0),
+      roundScores: publicView.roundScores || [2, 2, 2, 2],
+      borrowWindVotes: room.borrowWindVotes
+        ? {
+            on: [...room.borrowWindVotes.values()].filter(Boolean).length,
+            off: [...room.borrowWindVotes.values()].filter((value) => !value).length,
+          }
+        : { on: 0, off: 0 },
+      yourBorrowWindVote: room.borrowWindVotes?.has(viewer.seat)
+        ? room.borrowWindVotes.get(viewer.seat)
+        : null,
+      yourAutoPassAt:
+        room.auto && room.auto.seat === viewer.seat && room.auto.kind === 'no_moves'
+          ? room.auto.at
+          : null,
       cardCounter: room.counterEnabled ? remainingCounts : null,
       turnSeconds: room.turnSeconds,
       tributeSeconds: room.tributeSeconds,
@@ -391,6 +438,18 @@ function buildGameState(room, viewer) {
         room.phase === 'ended' &&
         viewer.id === room.hostId &&
         allConnected,
+      result: publicView.result
+        ? {
+            ...publicView.result,
+            scoreDeltas: room.scoringEnabled !== false
+              ? (publicView.result.scoreDeltas || [0, 0, 0, 0])
+              : null,
+            scoreTotals: room.scoringEnabled !== false
+              ? [...(room.scores || [0, 0, 0, 0])]
+              : null,
+            roundScores: publicView.result.roundScores || publicView.roundScores || [2, 2, 2, 2],
+          }
+        : null,
       serverNow: Date.now(),
     },
   };
@@ -554,9 +613,11 @@ function scheduleGameAfterTribute(room) {
       players: enginePlayers,
       hands: finalHands,
       startNote: '供牌完成，身份重新入局！',
+      borrowWind: Boolean(room.borrowWindEnabled),
     });
     room.tribute = null;
     room.phase = 'playing';
+    room.dealGraceUntil = Date.now() + (room.singlePlayer ? 4500 : 1500);
     room.currentNoLegal = false;
     room.turnDeadline = null;
     room.turnDeadlineVersion = 0;
@@ -610,6 +671,7 @@ function startGame(room, starter) {
 
   clearAuto(room);
   clearTributeTimers(room);
+  room.borrowWindVotes?.clear();
   room.round = (room.round || 0) + 1;
   resetReady(room);
   const enginePlayers = room.players
@@ -649,9 +711,10 @@ function startGame(room, starter) {
 
   const playersReady = room.players.length === 4;
   if (!playersReady) throw new GameError('要凑齐 4 个小伙伴才能开打哦！', 'NEED_PLAYERS');
-  room.game = new A3Game({ players: enginePlayers, startNote });
+  room.game = new A3Game({ players: enginePlayers, startNote, borrowWind: Boolean(room.borrowWindEnabled) });
   room.phase = 'playing';
   room.tribute = null;
+  room.dealGraceUntil = Date.now() + (room.singlePlayer ? 7000 : 2000);
   room.currentNoLegal = false;
   room.turnDeadline = null;
   room.turnDeadlineVersion = 0;
@@ -779,6 +842,11 @@ function handleCreate(ws, message) {
     tribute: null,
     tributeEnabled: false,
     counterEnabled: false,
+    borrowWindEnabled: false,
+    borrowWindVotes: new Map(),
+    scoringEnabled: true,
+    scores: [0, 0, 0, 0],
+    scoreAppliedRound: null,
     turnSeconds: DEFAULT_TURN_SECONDS,
     tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
     lastResult: null,
@@ -849,6 +917,11 @@ function handleSingle(ws, message) {
     tribute: null,
     tributeEnabled: false,
     counterEnabled: true,
+    borrowWindEnabled: false,
+    borrowWindVotes: new Map(),
+    scoringEnabled: true,
+    scores: [0, 0, 0, 0],
+    scoreAppliedRound: null,
     turnSeconds: DEFAULT_TURN_SECONDS,
     tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
     lastResult: null,
@@ -975,8 +1048,10 @@ function handleSettings(ws, message) {
   const context = socketContext(ws);
   if (!context) return;
   const { room, player } = context;
-  if (room.phase !== 'lobby') {
-    sendError(ws, '只能在大厅改规则哦！', 'BAD_PHASE');
+  const singleInGame = room.singlePlayer && ['playing', 'ended'].includes(room.phase);
+  const hostInResult = room.phase === 'ended' && player.id === room.hostId;
+  if (room.phase !== 'lobby' && !singleInGame && !hostInResult) {
+    sendError(ws, '只能在大厅或结算页改规则哦！', 'BAD_PHASE');
     return;
   }
   if (player.id !== room.hostId) {
@@ -988,6 +1063,12 @@ function handleSettings(ws, message) {
   }
   if (Object.prototype.hasOwnProperty.call(message, 'counterEnabled')) {
     room.counterEnabled = Boolean(message.counterEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'borrowWindEnabled')) {
+    room.borrowWindEnabled = Boolean(message.borrowWindEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'scoringEnabled')) {
+    room.scoringEnabled = Boolean(message.scoringEnabled);
   }
   if (Object.prototype.hasOwnProperty.call(message, 'turnSeconds')) {
     room.turnSeconds = clampInteger(
@@ -1006,11 +1087,35 @@ function handleSettings(ws, message) {
     );
   }
   touch(room);
-  broadcastLobby(room);
+  if (room.phase === 'lobby') broadcastLobby(room);
+  else broadcastGame(room);
   log(
     `room ${room.code}: settings tribute=${room.tributeEnabled} counter=${room.counterEnabled} ` +
     `turn=${room.turnSeconds}s tributeTime=${room.tributeSeconds}s`,
   );
+}
+
+function handleBorrowWindVote(ws, message) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  if (room.phase !== 'ended') {
+    sendError(ws, '只能在结算页投票借风规则。', 'BAD_PHASE');
+    return;
+  }
+  if (room.singlePlayer) {
+    room.borrowWindEnabled = Boolean(message.enabled);
+  } else {
+    if (!room.borrowWindVotes) room.borrowWindVotes = new Map();
+    room.borrowWindVotes.set(player.seat, Boolean(message.enabled));
+    const on = [...room.borrowWindVotes.values()].filter(Boolean).length;
+    const off = [...room.borrowWindVotes.values()].filter((value) => !value).length;
+    if (on > off) room.borrowWindEnabled = true;
+    else if (off > on) room.borrowWindEnabled = false;
+  }
+  touch(room);
+  broadcastGame(room);
+  log(`room ${room.code}: borrow wind vote ${player.name}=${Boolean(message.enabled)} enabled=${room.borrowWindEnabled}`);
 }
 
 function handleTrust(ws, message) {
@@ -1283,6 +1388,9 @@ function handleMessage(ws, text) {
       break;
     case 'trust':
       handleTrust(ws, message);
+      break;
+    case 'borrow_wind':
+      handleBorrowWindVote(ws, message);
       break;
     case 'play':
       handlePlay(ws, message);

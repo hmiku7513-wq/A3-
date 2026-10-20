@@ -82,6 +82,15 @@ test('单机模式：一名玩家加三名电脑玩家，直接发牌并启用�
   assert.equal(typeof room.turnDeadline, 'number');
   assert.ok(Object.values(room.cardCounter).reduce((sum, value) => sum + value, 0) <= 39);
 
+  client.send({ type: 'settings', counterEnabled: false, tributeEnabled: true });
+  await client.waitFor(
+    (entry) => entry.latest?.counterEnabled === false && entry.latest?.tributeEnabled === true,
+    5000,
+    'single settings toggle',
+  );
+  client.send({ type: 'settings', counterEnabled: true });
+  await client.waitFor((entry) => entry.latest?.counterEnabled === true, 5000, 'single counter back on');
+
   const startEvent = room.events.at(-1).id;
   client.send({ type: 'trust', enabled: true });
   await client.waitFor(
@@ -94,7 +103,7 @@ test('单机模式：一名玩家加三名电脑玩家，直接发牌并启用�
       (event) => event.id > startEvent && event.seat !== room.youSeat &&
         ['play', 'auto_play', 'pass', 'auto_pass'].includes(event.type),
     ),
-    6000,
+    12000,
     'bot action',
   );
 });

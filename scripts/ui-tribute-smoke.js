@@ -123,8 +123,8 @@ async function main() {
         source: "try { localStorage.removeItem('a3.session.v1'); } catch (e) {}",
       });
       await page.send('Page.navigate', { url: appUrl });
-      await page.waitFor("document.readyState === 'complete' && !!document.getElementById('create-btn')", 10000, 'load');
-      await page.waitFor("!document.getElementById('create-btn').disabled", 10000, 'connected');
+      await page.waitFor("document.readyState === 'complete' && !!document.getElementById('home-create-btn')", 10000, 'load');
+      await page.waitFor("!document.getElementById('home-create-btn').disabled", 10000, 'connected');
       pages.push(page);
     }
     console.log('tribute tabs ready', port);
@@ -134,7 +134,7 @@ async function main() {
       const input = document.getElementById('name-input');
       input.value = ${JSON.stringify(names[0])};
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      document.getElementById('create-btn').click();
+      document.getElementById('home-create-btn').click();
       return true;
     })()`);
     await pages[0].waitFor("document.getElementById('screen-room').classList.contains('is-active') && document.getElementById('room-code-display').textContent.trim() !== '----'", 8000, 'room');
@@ -145,10 +145,11 @@ async function main() {
         const name = document.getElementById('name-input');
         name.value = ${JSON.stringify(names[i])};
         name.dispatchEvent(new Event('input', { bubbles: true }));
-        const input = document.getElementById('room-code-input');
+        document.getElementById('home-join-btn').click();
+        const input = document.getElementById('home-join-code');
         input.value = ${JSON.stringify(code)};
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        document.getElementById('join-btn').click();
+        document.getElementById('home-join-submit').click();
         return true;
       })()`);
       await pages[i].waitFor("document.getElementById('screen-room').classList.contains('is-active')", 8000, `join ${i}`);

@@ -25,25 +25,13 @@
         </a>
         <div class="landing-header-actions">
           <span id="connection-text" class="connection-text"><span class="dot"></span>正在连接</span>
-          <button type="button" class="text-btn" data-open-rules>玩法说明</button>
         </div>
       </header>
 
       <div class="landing-main">
-        <section class="hero-copy">
-          <p class="eyebrow"><span></span> FOUR PLAYERS · HAPPY TIME!</p>
+        <section class="hero-copy" aria-label="A3 欢乐暗牌">
           <h1 class="hero-title" aria-label="A3">A<span>3</span></h1>
           <p class="hero-kicker">四个人，一副牌，快乐开整！</p>
-          <p class="hero-desc">
-            黑桃 A 和黑桃 3 悄悄藏在牌里，是队友还是对手？
-            别急着亮底牌，先来一把欢乐暗牌，笑声比输赢更重要！
-          </p>
-          <div class="hero-tags" aria-label="游戏特色">
-            <span><b>4</b> 人开黑</span>
-            <span><b>13</b> 张手牌</span>
-            <span><b>2</b> 张身份牌</span>
-            <span><b>3s</b> 自动过牌</span>
-          </div>
 
           <div class="hero-card-fan" aria-hidden="true">
             <div class="hero-face hero-face-a"><b>A</b><span>♠</span><em>身份</em></div>
@@ -58,7 +46,6 @@
           <div class="panel-top-line"></div>
           <p class="panel-kicker">HAPPY TABLE</p>
           <h2 id="entry-title">上桌开玩</h2>
-          <p class="panel-note">开个房间，喊上三位小伙伴。人齐就开打，输赢先放一边，快乐先上桌！</p>
 
           <label class="field-label" for="name-input">你的外号</label>
           <div class="input-wrap">
@@ -66,36 +53,24 @@
             <span class="input-corner" aria-hidden="true"></span>
           </div>
 
-          <button id="create-btn" type="button" class="primary-btn create-btn">
-            <span>开个房间</span>
-            <span class="btn-arrow" aria-hidden="true">→</span>
-          </button>
-          <button id="single-btn" type="button" class="single-btn">单机试玩 · 对阵三个电脑玩家</button>
-
-          <div class="or-divider"><span>或者去朋友的牌桌凑一脚</span></div>
-
-          <div class="join-row">
-            <div class="input-wrap code-wrap">
-              <input id="room-code-input" class="text-input code-input" type="text" maxlength="4" inputmode="text" autocomplete="off" spellcheck="false" placeholder="房间号">
+          <div class="home-entry-actions">
+            <button id="home-create-btn" type="button" class="primary-btn home-entry-btn home-entry-primary">开个房间</button>
+            <button id="home-join-btn" type="button" class="secondary-btn home-entry-btn home-entry-join">加入房间</button>
+            <div class="home-entry-duo">
+              <button id="home-single-btn" type="button" class="secondary-btn home-entry-btn home-entry-small">单人模式</button>
+              <button id="home-tutorial-btn" type="button" class="secondary-btn home-entry-btn home-entry-small">新手教程</button>
             </div>
-            <button id="join-btn" type="button" class="secondary-btn">进桌</button>
           </div>
 
           <p id="landing-error" class="form-error" role="alert" aria-live="assertive"></p>
 
           <button type="button" class="rules-link" data-open-rules>
             <span class="rules-mark">?</span>
-            <span>第一次来？60 秒看懂欢乐玩法</span>
+            <span>玩法说明</span>
             <span aria-hidden="true">↗</span>
           </button>
         </section>
       </div>
-
-      <footer class="landing-footer">
-        <span>A3 · 欢乐牌局</span>
-        <span class="footer-rule"></span>
-        <span>牌序 4 &lt; 5 &lt; … &lt; A &lt; 2 &lt; 3</span>
-      </footer>
     </section>
 
     <section id="screen-room" class="screen room-screen" aria-label="等待房间">
@@ -152,6 +127,18 @@
           </div>
 
           <div class="table-rule-card">
+            <span class="rule-card-icon" aria-hidden="true">风</span>
+            <div class="rule-card-copy">
+              <b>借风规则</b>
+              <p>所有身份明了后，出完牌者的最后一手若无人接，改由其队友领出。</p>
+            </div>
+            <button id="borrow-wind-toggle" type="button" class="rule-switch" role="switch" aria-checked="false">
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span id="borrow-wind-toggle-label">关闭</span>
+            </button>
+          </div>
+
+          <div class="table-rule-card">
             <span class="rule-card-icon" aria-hidden="true">记</span>
             <div class="rule-card-copy">
               <b>记牌器</b>
@@ -203,11 +190,15 @@
         <div class="game-topbar-center">
           <span id="game-phase-label" class="phase-label">对局进行中</span>
           <span id="game-sound-dot" class="sound-indicator" title="音效开启">♪</span>
+          <div id="score-strip" class="score-strip" aria-label="本场分数"></div>
         </div>
         <div class="game-topbar-actions">
           <button id="game-log-btn" type="button" class="icon-only-btn" title="对局记录" aria-label="打开对局记录">≡</button>
           <button id="game-counter-btn" type="button" class="icon-only-btn" title="记牌器" aria-label="打开记牌器" hidden>记</button>
           <button id="game-trust-btn" type="button" class="icon-text-btn trust-btn" title="开启托管">托管</button>
+          <button id="single-counter-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式记牌器开关" hidden>记牌</button>
+          <button id="single-tribute-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式供牌规则开关" hidden>供牌</button>
+          <button id="single-borrow-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式借风规则开关" hidden>借风</button>
           <button id="game-sound-btn" type="button" class="icon-only-btn" title="切换音效" aria-label="切换音效">♪</button>
           <button id="game-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button id="game-result-btn" type="button" class="icon-text-btn result-top-btn" hidden>看结果</button>
@@ -220,6 +211,7 @@
       <div id="counter-panel" class="counter-panel" hidden title="点击查看详细牌面；计数不含自己的手牌">
         <span class="counter-title">记牌器</span>
         <div id="counter-chips" class="counter-chips"></div>
+        <button id="counter-collapse-btn" type="button" class="counter-collapse-btn" title="收起记牌器">收起</button>
       </div>
 
       <div class="table-grid">
@@ -290,6 +282,14 @@
           <p id="tribute-instruction" class="tribute-instruction">正在准备供牌…</p>
           <div id="tribute-timer" class="turn-timer tribute-timer" hidden></div>
           <div id="tribute-previous" class="tribute-previous"></div>
+          <div id="tribute-auto" class="tribute-auto" hidden>
+            <div class="tribute-auto-head">
+              <span>自动选中供牌</span>
+              <b id="tribute-auto-countdown">1.5s</b>
+            </div>
+            <div id="tribute-auto-cards" class="tribute-auto-cards"></div>
+            <p>倒计时结束后自动确认，供牌进入下方牌池</p>
+          </div>
         </div>
 
         <div id="tribute-players" class="tribute-players" aria-label="供牌玩家"></div>
@@ -331,12 +331,105 @@
     </section>
   </main>
 
+  <div id="home-join-modal" class="modal home-join-modal" hidden>
+    <div class="modal-backdrop"></div>
+    <div class="modal-card home-join-card" role="dialog" aria-modal="true" aria-labelledby="home-join-title">
+      <button id="home-join-close" type="button" class="modal-close" aria-label="关闭加入房间弹层">×</button>
+      <p class="eyebrow"><span></span> JOIN A TABLE</p>
+      <h2 id="home-join-title">加入房间</h2>
+      <label class="home-join-label" for="home-join-code">房间号</label>
+      <input id="home-join-code" class="home-join-input" type="text" maxlength="4" inputmode="text" autocomplete="off" spellcheck="false" placeholder="输入 4 位房间号" aria-describedby="home-join-error">
+      <p id="home-join-error" class="form-error home-join-error" role="alert" aria-live="assertive"></p>
+      <button id="home-join-submit" type="button" class="primary-btn home-join-submit">进入房间</button>
+    </div>
+  </div>
+
+  <div id="tutorial-match" class="tutorial-match" hidden>
+    <header id="tutorial-topbar" class="tutorial-topbar">
+      <button id="tutorial-rules-btn" type="button" class="tutorial-rules-btn" hidden>可选规则</button>
+      <em id="tutorial-progress" class="tutorial-progress" hidden>第 1 / 21 步</em>
+      <button id="tutorial-match-close" type="button" class="tutorial-close-btn" aria-label="结束教程" hidden>×</button>
+    </header>
+    <div class="tutorial-match-table">
+      <div id="tutorial-seats" class="tutorial-seats"></div>
+      <div class="tutorial-table-center">
+        <div class="tutorial-turn-line">
+          <span id="tutorial-turn" class="tutorial-turn">轮到你出牌</span>
+          <div id="tutorial-timer" class="tutorial-timer" hidden></div>
+        </div>
+        <div id="tutorial-played" class="tutorial-played"></div>
+        <p id="tutorial-scene-rule" class="tutorial-scene-rule"></p>
+      </div>
+      <div id="tutorial-play-actions" class="tutorial-play-actions">
+        <button id="tutorial-hint-btn" type="button" class="tutorial-action-btn tutorial-hint-btn" hidden>提示</button>
+        <button id="tutorial-skip-btn" type="button" class="tutorial-action-btn tutorial-skip-btn" hidden>跳过</button>
+        <button id="tutorial-play-btn" type="button" class="tutorial-action-btn tutorial-play-btn" hidden>出牌</button>
+      </div>
+      <div id="tutorial-match-hand" class="tutorial-match-hand"></div>
+    </div>
+    <div id="tutorial-rule-pop" class="tutorial-coach tutorial-rule-pop" role="dialog" aria-labelledby="tutorial-scene-title">
+      <div class="tutorial-rule-pop-body">
+        <p id="tutorial-scene-eyebrow" class="eyebrow">基础规则</p>
+        <h2 id="tutorial-scene-title"></h2>
+        <p id="tutorial-scene-text"></p>
+      </div>
+      <div id="tutorial-scene-actions" class="tutorial-actions"></div>
+    </div>
+    <div id="tutorial-result-panel" class="tutorial-result-panel" hidden>
+      <div class="tutorial-result-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-result-title">
+        <p class="eyebrow"><span></span> TUTORIAL COMPLETE</p>
+        <h2 id="tutorial-result-title">教程完成</h2>
+        <button id="tutorial-home-btn" type="button" class="primary-btn tutorial-home-btn">回到首页</button>
+      </div>
+    </div>
+    <div id="tutorial-rules-sheet" class="tutorial-rules-sheet" hidden>
+      <div class="tutorial-rules-card">
+        <button id="tutorial-rules-close" type="button" class="modal-close" aria-label="收起可选规则">×</button>
+        <p class="eyebrow">OPTIONAL RULES</p>
+        <h2>可选规则</h2>
+        <p>这些规则可以下一局开启，不影响当前基础教学。</p>
+        <div class="tutorial-rule-grid">
+          <button type="button" class="tutorial-rule-item" data-tutorial-rule="tribute">
+            <span>供</span><b>供牌</b><em>上局赢家获得进贡，先还牌再出牌</em>
+          </button>
+          <button type="button" class="tutorial-rule-item" data-tutorial-rule="borrow">
+            <span>风</span><b>借风</b><em>身份全明后，队友可以接管领出</em>
+          </button>
+          <button type="button" class="tutorial-rule-item" data-tutorial-rule="scoring">
+            <span>分</span><b>积分</b><em>牌型加乘分，多局累计结算</em>
+          </button>
+        </div>
+        <div id="tutorial-rule-detail" class="tutorial-rule-detail"></div>
+        <div id="tutorial-rule-actions" class="tutorial-actions" hidden>
+          <button type="button" class="secondary-btn" data-tutorial-finish>结束教程</button>
+          <button type="button" class="primary-btn" data-tutorial-continue>继续完成对局</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-layer" class="toast-layer" aria-live="polite" aria-atomic="false"></div>
   <div id="identity-alert-layer" class="identity-alert-layer" aria-live="assertive"></div>
   <div id="deal-animation" class="fx-layer deal-animation" hidden aria-hidden="true"></div>
   <div id="finish-animation" class="fx-layer finish-animation" hidden aria-hidden="true"></div>
   <div id="role-claim-layer" class="fx-layer role-claim-layer" hidden aria-hidden="true"></div>
   <div id="tribute-fly-layer" class="fx-layer tribute-fly-layer" hidden aria-hidden="true"></div>
+  <div id="play-animation" class="fx-layer play-animation" hidden aria-hidden="true"></div>
+  <div id="private-identity" class="fx-layer private-identity-layer" hidden aria-hidden="true"></div>
+
+  <div id="fullscreen-tip" class="fullscreen-tip" hidden>
+    <div class="fullscreen-tip-card">
+      <span class="fullscreen-tip-icon" aria-hidden="true">⛶</span>
+      <h3>手机全屏小提示</h3>
+      <p>如果当前在微信或 App 内置浏览器里，请复制下面的网址，粘贴到手机自带的 Safari / Chrome 打开，再点游戏右上角的全屏按钮。</p>
+      <code id="fullscreen-tip-url"></code>
+      <div class="fullscreen-tip-actions">
+        <button id="copy-fullscreen-link" type="button" class="primary-btn">复制当前链接</button>
+        <button id="continue-fullscreen" type="button" class="secondary-btn">仍然尝试全屏</button>
+        <button id="close-fullscreen-tip" type="button" class="mini-btn">知道了</button>
+      </div>
+    </div>
+  </div>
 
   <div id="orientation-guard" class="orientation-guard">
     <div class="orientation-card">
@@ -396,12 +489,13 @@
             <p>持有这两张牌的人属于同一阵营——<strong>地主</strong>。其余玩家是<strong>农民</strong>。</p>
           </div>
           <p>两张身份牌在同一个人手上时，他是<strong>双地主</strong>，独自对抗三名农民。</p>
-          <p>身份牌在对局中按照普通牌打出，不额外增加牌力。玩家在开始时不知道自己的队友是谁。</p>
+          <p>身份牌按普通牌打出，不额外增加牌力。开局时身份是私密的：只有你的屏幕会弹出私人身份动画，个人面板也会标出地主或农民；开始时你也不知道自己的队友是谁。</p>
+          <p>任意身份牌被打出的瞬间，全场都会知道你属于地主阵营；两张身份牌都被同一人打出时，标记为双地主。</p>
         </section>
 
         <section class="rule-section">
           <h3><span>03</span> 牌型与大小</h3>
-          <p>单牌、对子只能同类型跟牌。所有“多张牌”按牌型等级比较，<strong>高等级牌型可以压过低等级牌型</strong>。</p>
+          <p>单牌、对子只能同类型跟牌。所有“多张牌”按牌型等级比较，<strong>高等级牌型可以压过低等级牌型</strong>；同级牌型再按点数与花色决出大小。</p>
           <div class="combo-ladder">
             <div><span>三条</span><em>3 张</em><i>最低</i></div>
             <div><span>顺子</span><em>5 张</em><i>最高牌 45678 — 10JQKA</i></div>
@@ -411,28 +505,22 @@
             <div class="straight-flush"><span>同花顺</span><em>5 张</em><i>同花色连续牌，比最高牌</i></div>
             <div class="royal"><span>皇家同花顺</span><em>5 张</em><i>10JQKA 同花，比花色</i></div>
           </div>
+          <p>压不过或不想出可以选择<strong>不出</strong>；其余在场玩家全部不出后，最后出牌者重新领出，可以更换任意合法牌型。出完手牌的玩家不再跟牌，但最后一手仍要被其他人压过。</p>
           <p class="rule-note">顺子最大到 10JQKA，2 和 3 不参与顺子。五张同花色的连续牌为同花顺；其中 10JQKA 同花是皇家同花顺，单独列为最高牌型。</p>
+          <div class="rule-fineprint">
+            <ul>
+              <li>单牌、对子：先比点数，点数相同再比花色；对子比较其中较大的花色。</li>
+              <li>三条、三带二、四带一：只比较核心点数。</li>
+              <li>顺子：比较最大点数；相同则比较最大点数那张牌的花色。</li>
+              <li>同花：先比花色，再按点数从高到低比较。</li>
+              <li>同花顺：比较最高牌点数；相同则比较最高牌的花色。</li>
+              <li>皇家同花顺：比较花色。</li>
+            </ul>
+          </div>
         </section>
 
         <section class="rule-section">
-          <h3><span>04</span> 出牌流程</h3>
-          <p><b>首出：</b>持有 ♦4 的玩家先出牌，第一手必须包含 ♦4。</p>
-          <p><b>跟牌：</b>必须压过上家。单牌只能压单牌、对子只能压对子；多张牌按牌型等级和牌型内的规则比较。压不过或不想出，可以选择“不出”。</p>
-          <p><b>收轮：</b>其余在场玩家全部不出后，最后出牌者重新领出，可以更换任意合法牌型。</p>
-          <p><b>出完：</b>出完手牌的玩家不再参与跟牌，但最后一手仍要被其他人压过。若其余人都不要，则由他的下一位在场玩家领出。</p>
-          <p><b>报单报双：</b>当玩家只剩 1 张或 2 张牌时，牌桌会常驻显示“报单 / 报双”提醒。</p>
-          <p><b>自动跳过：</b>轮到你且没有任何合法牌可出时，系统会在 3 秒后自动选择不出；这不会向其他玩家公开原因。</p>
-          <p><b>操作限时：</b>出牌默认 20 秒，房主可在 5～30 秒之间调整；超时自动不出，若你是本轮先手则自动打出最小合法牌。供还牌默认 30 秒，房主可在 15～60 秒之间调整，超时自动选择。</p>
-        </section>
-
-        <section class="rule-section">
-          <h3><span>05</span> 身份公开</h3>
-          <p>任意身份牌被打出的瞬间，全场立即收到提醒。打出者会被公开标记为地主，并展示其打出的身份牌；两张身份牌都被同一人打出时标记为双地主。</p>
-          <p>农民出完牌后，会公开标记为农民。两张身份牌都现身后，地主阵营完全锁定，余下尚未公开的玩家也会被标记为农民。</p>
-        </section>
-
-        <section class="rule-section">
-          <h3><span>06</span> 欢乐供牌（可选）</h3>
+          <h3><span>04</span> 欢乐供牌</h3>
           <p>房主可以在开局前开启供牌。上一局不是平局时，下一局发牌后先进行进贡还贡，再开始出牌。</p>
           <div class="supply-grid">
             <div><b>1 个赢家</b><span>3 个输家各供 1 张最高非身份牌，赢家还 3 张；按供牌大小，供牌最大的输家先挑还牌。</span></div>
@@ -444,7 +532,7 @@
         </section>
 
         <section class="rule-section">
-          <h3><span>07</span> 胜负判定</h3>
+          <h3><span>05</span> 胜负判定</h3>
           <div class="outcome-table">
             <div class="outcome-head"><span>局面</span><span>结果</span></div>
             <div><span>有双地主，双地主取得第 1 或第 2 顺位</span><span class="win">地主胜</span></div>
@@ -454,28 +542,6 @@
             <div><span>无双地主，双方分别取得 1、4 与 2、3 顺位</span><span class="draw">平局</span></div>
           </div>
           <p class="rule-note">对局在胜负已经确定时结束。双地主有可能在第 1 或第 2 顺位产生时直接锁定结果；无双地主最多进行到第 3 顺位。</p>
-        </section>
-
-        <section class="rule-section">
-          <h3><span>08</span> 辅助工具与显示</h3>
-          <p><b>记牌器：</b>房主可在大厅开启。顶部只统计“其他玩家手里还没打出的牌”，会同时扣除已经打出的牌和你自己的手牌。点击顶部记牌器可打开详细牌面：每个点数按 ♦、♣、♥、♠ 堆叠，已打出的牌变灰，自己的手牌标金。</p>
-          <p><b>提示：</b>轮到你时点击“提示”，系统会从你的手牌和上家牌型中找出一手合法牌并自动选中；有多个选择时，连续点击可在不同牌型之间轮换。</p>
-          <p><b>托管：</b>多人对局可点右上角“托管”开启自动出牌，再点“取消”恢复手动；托管状态对所有玩家可见。</p>
-          <p><b>本轮出牌：</b>当前这一轮每位玩家打出的牌会显示在其座位旁；一轮结束、重新领出后清空。</p>
-          <p><b>手机：</b>建议横屏游玩。进入牌桌后可点右上角全屏按钮；竖屏时会显示横屏提示。</p>
-        </section>
-
-        <section class="rule-section rule-fineprint">
-          <h3><span>09</span> 比较细则</h3>
-          <ul>
-            <li>单牌、对子：数字优先，数字相同比较花色；对子比较其中较大的花色。</li>
-            <li>三条、三带二、四带一：只比较核心点数。</li>
-            <li>顺子：比较最大点数；相同则比较最大点数那张牌的花色。</li>
-            <li>同花：先比较花色，再按点数从高到低比较。</li>
-            <li>同花顺：比较最高牌点数；相同则比较最高牌的花色。</li>
-            <li>皇家同花顺：比较花色。</li>
-            <li>所有手牌自动按“点数→花色”从大到小排列。</li>
-          </ul>
         </section>
       </div>
       <div class="modal-footer">
@@ -494,6 +560,32 @@
         <p id="result-reason" class="result-reason"></p>
       </div>
       <div id="result-teams" class="result-teams"></div>
+      <div class="result-rule-panel">
+        <div class="result-rule-row">
+          <b>供牌规则</b>
+          <button id="result-tribute-toggle" type="button" class="rule-switch result-rule-switch" role="switch" aria-checked="false">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span id="result-tribute-label">关闭</span>
+          </button>
+          <em>下一局生效</em>
+        </div>
+        <div class="result-rule-row">
+          <b>借风规则</b>
+          <button id="result-borrow-toggle" type="button" class="rule-switch result-rule-switch" role="switch" aria-checked="false">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span id="result-borrow-label">关闭</span>
+          </button>
+          <em>下一局生效</em>
+        </div>
+        <div class="result-rule-row">
+          <b>积分规则</b>
+          <button id="result-scoring-toggle" type="button" class="rule-switch result-rule-switch" role="switch" aria-checked="true">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span id="result-scoring-label">开启</span>
+          </button>
+          <em>下一局生效</em>
+        </div>
+      </div>
       <div class="result-ranking-wrap">
         <h3>欢乐顺位榜</h3>
         <ol id="result-ranking" class="result-ranking"></ol>

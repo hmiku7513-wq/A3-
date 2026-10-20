@@ -53,7 +53,8 @@ class CDP {
         return;
       }
       if (message.method === 'Runtime.exceptionThrown') {
-        this.errors.push(`exception: ${message.params.exceptionDetails?.text || 'unknown'}`);
+        const details = message.params.exceptionDetails;
+        this.errors.push(`exception: ${details?.text || 'unknown'} ${details?.exception?.description || ''}`);
       }
       if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
         this.errors.push(`console.error: ${message.params.args.map((arg) => arg.value).join(' ')}`);
@@ -157,8 +158,8 @@ async function createPage({ width = 1440, height = 1000, mobile = false } = {}) 
     source: "try { localStorage.removeItem('a3.session.v1'); } catch (e) {}",
   });
   await cdp.send('Page.navigate', { url: APP_URL });
-  await cdp.waitFor("document.readyState === 'complete' && !!document.getElementById('create-btn')", 10000, 'app load');
-  await cdp.waitFor("!document.getElementById('create-btn').disabled", 10000, 'websocket connection');
+  await cdp.waitFor("document.readyState === 'complete' && !!document.getElementById('home-create-btn')", 10000, 'app load');
+  await cdp.waitFor("!document.getElementById('home-create-btn').disabled", 10000, 'websocket connection');
   return { cdp, targetId: target.id };
 }
 
@@ -191,9 +192,121 @@ async function main() {
     }
     console.log('four browser tabs ready');
 
+    // Tutorial: a playable simulated match. Basic turns auto-select the target cards,
+    // the player confirms with the play button; the free phase adds timer/hint/skip.
+    await pages[0].cdp.evaluate("document.getElementById('home-tutorial-btn').click()");
+    await pages[0].cdp.waitFor(
+      "!document.getElementById('tutorial-match').hidden && document.querySelectorAll('#tutorial-seats .tutorial-seat').length === 4",
+      4000,
+      'tutorial match open with four seats',
+    );
+    let tutorialAutoSelectSeen = false;
+    let tutorialPlayClicks = 0;
+    for (let step = 0; step < 200; step += 1) {
+      const state = await pages[0].cdp.evaluate(`(() => ({
+        rulesReady: !document.getElementById('tutorial-rules-btn').hidden,
+        playVisible: !document.getElementById('tutorial-play-btn').hidden,
+        playDisabled: document.getElementById('tutorial-play-btn').disabled,
+        timerVisible: !document.getElementById('tutorial-timer').hidden,
+        hintVisible: !document.getElementById('tutorial-hint-btn').hidden,
+        popupConfirm: !document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-pop-close]'),
+        selected: document.querySelectorAll('#tutorial-match-hand .tutorial-card-face.selected').length,
+        resultVisible: !document.getElementById('tutorial-result-panel').hidden,
+      }))()`);
+      if (state.resultVisible) break;
+      if (state.popupConfirm) {
+        await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-pop-close]').click()");
+        await sleep(160);
+        continue;
+      }
+      if (state.rulesReady && !state.playVisible) break;
+      if (state.playVisible && !state.playDisabled) {
+        if (state.timerVisible || state.hintVisible) {
+          throw new Error('basic tutorial should not show timer/hint');
+        }
+        if (state.selected > 0) tutorialAutoSelectSeen = true;
+        await pages[0].cdp.evaluate("document.getElementById('tutorial-play-btn').click()");
+        tutorialPlayClicks += 1;
+        await sleep(180);
+        continue;
+      }
+      await sleep(120);
+    }
+    if (!tutorialAutoSelectSeen) throw new Error('basic tutorial did not auto-select target cards');
+    if (!tutorialPlayClicks) throw new Error('basic tutorial player never clicked play');
+    await pages[0].cdp.waitFor("!document.getElementById('tutorial-rules-btn').hidden", 5000, 'optional rules unlocked');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-basic.png'));
+
+    await pages[0].cdp.evaluate("document.getElementById('tutorial-rules-btn').click()");
+    await pages[0].cdp.waitFor("!document.getElementById('tutorial-rules-sheet').hidden", 3000, 'optional rules sheet');
+    for (const rule of ['tribute', 'borrow', 'scoring']) {
+      await pages[0].cdp.evaluate(`document.querySelector('[data-tutorial-rule="${rule}"]').click()`);
+    }
+    await pages[0].cdp.waitFor("!document.getElementById('tutorial-rule-actions').hidden", 3000, 'optional rules done');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-rules.png'));
+    await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-continue]').click()");
+    await pages[0].cdp.waitFor(`(() => {
+      const timer = document.getElementById('tutorial-timer');
+      const hint = document.getElementById('tutorial-hint-btn');
+      const skip = document.getElementById('tutorial-skip-btn');
+      const selected = document.querySelectorAll('#tutorial-match-hand .tutorial-card-face.selected').length;
+      return !timer.hidden && !hint.hidden && !skip.hidden && selected === 0;
+    })()`, 4000, 'free phase timer/hint/skip and no auto-select');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-free.png'));
+
+    // Finish the free phase to reach the result panel (only "回到首页").
+    let tutorialHintTried = false;
+    for (let step = 0; step < 200; step += 1) {
+      const state = await pages[0].cdp.evaluate(`(() => ({
+        result: !document.getElementById('tutorial-result-panel').hidden,
+        playVisible: !document.getElementById('tutorial-play-btn').hidden,
+        playDisabled: document.getElementById('tutorial-play-btn').disabled,
+        skipVisible: !document.getElementById('tutorial-skip-btn').hidden,
+        skipDisabled: document.getElementById('tutorial-skip-btn').disabled,
+        hintVisible: !document.getElementById('tutorial-hint-btn').hidden,
+        popupConfirm: !document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-pop-close]'),
+      }))()`);
+      if (state.result) break;
+      if (state.popupConfirm) {
+        await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-pop-close]').click()");
+        await sleep(140);
+        continue;
+      }
+      if (state.playVisible && !state.playDisabled) {
+        tutorialHintTried = false;
+        await pages[0].cdp.evaluate("document.getElementById('tutorial-play-btn').click()");
+        await sleep(180);
+        continue;
+      }
+      if (state.hintVisible && !tutorialHintTried) {
+        tutorialHintTried = true;
+        await pages[0].cdp.evaluate("document.getElementById('tutorial-hint-btn').click()");
+        await sleep(160);
+        continue;
+      }
+      if (state.skipVisible && !state.skipDisabled) {
+        tutorialHintTried = false;
+        await pages[0].cdp.evaluate("document.getElementById('tutorial-skip-btn').click()");
+        await sleep(180);
+        continue;
+      }
+      await sleep(140);
+    }
+    await pages[0].cdp.waitFor("!document.getElementById('tutorial-result-panel').hidden", 10000, 'tutorial result panel');
+    const tutorialResult = await pages[0].cdp.evaluate(`(() => ({
+      buttons: [...document.querySelectorAll('#tutorial-result-panel button')].map((node) => node.id || node.textContent),
+      cards: document.querySelectorAll('.tutorial-result .tutorial-result-row').length,
+    }))()`);
+    if (tutorialResult.buttons.length !== 1 || tutorialResult.buttons[0] !== 'tutorial-home-btn') {
+      throw new Error(`tutorial result should only offer home, got: ${tutorialResult.buttons.join(',')}`);
+    }
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-result.png'));
+    await pages[0].cdp.evaluate("document.getElementById('tutorial-home-btn').click()");
+    await pages[0].cdp.waitFor("document.getElementById('tutorial-match').hidden", 3000, 'tutorial closed');
+
     const names = ['青禾', '小满', '老K', '南风'];
     await setName(pages[0].cdp, names[0]);
-    await pages[0].cdp.evaluate("document.getElementById('create-btn').click()");
+    await pages[0].cdp.evaluate("document.getElementById('home-create-btn').click()");
     await pages[0].cdp.waitFor(
       "document.getElementById('screen-room').classList.contains('is-active') && document.getElementById('room-code-display').textContent.trim() !== '----'",
       8000,
@@ -206,10 +319,11 @@ async function main() {
     for (let i = 1; i < 4; i += 1) {
       await setName(pages[i].cdp, names[i]);
       await pages[i].cdp.evaluate(`(() => {
-        const input = document.getElementById('room-code-input');
+        document.getElementById('home-join-btn').click();
+        const input = document.getElementById('home-join-code');
         input.value = ${JSON.stringify(code)};
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        document.getElementById('join-btn').click();
+        document.getElementById('home-join-submit').click();
         return true;
       })()`);
       await pages[i].cdp.waitFor(
@@ -237,6 +351,8 @@ async function main() {
     await sleep(250);
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-room.png'));
     await pages[0].cdp.evaluate("document.getElementById('start-btn').click()");
+    await sleep(450);
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-deal.png'));
 
     for (const page of pages) {
       await page.cdp.waitFor(
@@ -245,6 +361,17 @@ async function main() {
         'game screen with 13 cards',
       );
     }
+    await pages[0].cdp.waitFor(
+      "!document.getElementById('private-identity').hidden",
+      4000,
+      'private identity reveal',
+    );
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-private-id.png'));
+    await pages[0].cdp.waitFor(
+      "document.getElementById('private-identity').hidden",
+      4000,
+      'private identity complete',
+    );
     await pages[0].cdp.waitFor(
       "!document.getElementById('counter-panel').hidden && document.querySelectorAll('#counter-chips .counter-chip').length === 13",
       5000,
@@ -261,16 +388,13 @@ async function main() {
     await pages[0].cdp.evaluate("document.querySelector('#counter-modal [data-close-modal=\"counter\"]').click()");
     await sleep(250);
     await pages[0].cdp.evaluate("document.getElementById('game-trust-btn').click()");
-    await pages[0].cdp.waitFor(
-      "document.getElementById('game-trust-btn').textContent.trim() === '取消'",
-      4000,
-      'trust on',
-    );
+    await sleep(500);
     await pages[0].cdp.evaluate("document.getElementById('game-trust-btn').click()");
+    await sleep(500);
     await pages[0].cdp.waitFor(
-      "document.getElementById('game-trust-btn').textContent.trim() === '托管'",
-      4000,
-      'trust off',
+      "!document.body.classList.contains('deal-running')",
+      6000,
+      'deal animation complete',
     );
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-game-start.png'));
 
@@ -322,7 +446,7 @@ async function main() {
 
       const states = await Promise.all(pages.map((page) => page.cdp.evaluate(`(() => ({
         inGame: document.getElementById('screen-game').classList.contains('is-active'),
-        ended: document.getElementById('game-phase-label').textContent.includes('结束'),
+        ended: !document.getElementById('game-result-btn').hidden,
         result: !document.getElementById('result-modal').hidden,
         yours: document.querySelector('.turn-banner')?.classList.contains('yours') || false,
         hand: [...document.querySelectorAll('#hand [data-card-id]')].map((node) => node.dataset.cardId),
@@ -330,7 +454,7 @@ async function main() {
           ? []
           : [...document.querySelectorAll('#last-play-cards [data-card-id]')].map((node) => node.dataset.cardId),
         mustDiamond: !document.getElementById('center-empty').hidden &&
-          document.getElementById('center-empty').textContent.includes('首手'),
+          document.getElementById('center-empty').textContent.includes('4'),
         toastError: document.querySelector('.toast.error')?.textContent || '',
       }))()`)));
 
@@ -348,6 +472,11 @@ async function main() {
       if (activeIndex === -1) continue;
       const page = pages[activeIndex];
       const state = states[activeIndex];
+      await page.cdp.waitFor(
+        "document.getElementById('play-animation').hidden",
+        3500,
+        'play animation complete',
+      );
       const previousCombo = state.last.length ? classify(state.last.map((id) => CARD_BY_ID[id])) : null;
       const moves = findLegalMoves(
         state.hand.map((id) => CARD_BY_ID[id]),
@@ -401,7 +530,7 @@ async function main() {
       }
 
       await page.cdp.waitFor(`(() => {
-        const ended = document.getElementById('game-phase-label').textContent.includes('结束');
+        const ended = !document.getElementById('game-result-btn').hidden;
         const yours = document.querySelector('.turn-banner')?.classList.contains('yours') || false;
         const result = !document.getElementById('result-modal').hidden;
         return ended || result || !yours;
@@ -437,7 +566,6 @@ async function main() {
     ));
     await sleep(350);
 
-    // 结算弹窗截图。
     await pages[0].cdp.send('Page.bringToFront');
     await sleep(450);
     const resultOpen = await pages[0].cdp.evaluate("!document.getElementById('result-modal').hidden");
@@ -446,6 +574,18 @@ async function main() {
       await sleep(600);
     }
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-result.png'));
+    await pages[0].cdp.evaluate("document.getElementById('result-borrow-toggle').click()");
+    await pages[0].cdp.waitFor(
+      "document.getElementById('result-borrow-toggle').getAttribute('aria-checked') === 'true'",
+      4000,
+      'result borrow on',
+    );
+    await pages[0].cdp.evaluate("document.getElementById('result-borrow-toggle').click()");
+    await pages[0].cdp.waitFor(
+      "document.getElementById('result-borrow-toggle').getAttribute('aria-checked') === 'false'",
+      4000,
+      'result borrow off',
+    );
 
     const finalState = await pages[0].cdp.evaluate(`(() => ({
       winner: document.getElementById('result-title').textContent,
@@ -465,7 +605,6 @@ async function main() {
     await pages[2].cdp.evaluate("document.querySelector('[data-close-modal=\"rules\"]')?.click(); true");
     await sleep(200);
 
-    // 房主再来一局：四人仍在房间时直接发下一局。
     await pages[0].cdp.evaluate("document.getElementById('restart-btn').click()");
     for (const page of pages) {
       await page.cdp.waitFor(`(() => {
@@ -477,25 +616,42 @@ async function main() {
     }
     console.log('rematch: dealt 13 cards to all four players');
 
-    // 单机模式：一名真人 + 三名电脑玩家。
     const singlePage = await createPage();
     pages.push(singlePage);
     await setName(singlePage.cdp, '单机测试');
-    await singlePage.cdp.evaluate("document.getElementById('single-btn').click()");
+    await singlePage.cdp.evaluate("document.getElementById('home-single-btn').click()");
     await singlePage.cdp.waitFor(`(() => {
       const game = document.getElementById('screen-game').classList.contains('is-active');
       const cards = document.querySelectorAll('#hand [data-card-id]').length;
       const bots = document.querySelectorAll('.bot-badge').length;
       return game && cards === 13 && bots === 3;
-    })()`, 10000, 'single-player game');
+    })()`, 10000, 'single-player game').catch(async (error) => {
+      console.log('single debug', await singlePage.cdp.evaluate(`JSON.stringify({
+        screen: document.querySelector('.screen.is-active')?.id,
+        hand: document.querySelectorAll('#hand [data-card-id]').length,
+        bots: document.querySelectorAll('.bot-badge').length,
+        body: document.body.className,
+        toast: document.querySelector('.toast')?.textContent || '',
+        deal: !document.getElementById('deal-animation').hidden,
+        privateId: !document.getElementById('private-identity').hidden,
+      })`));
+      console.log('single browser errors', singlePage.cdp.errors.join(' | '));
+      throw error;
+    });
     const singleInfo = await singlePage.cdp.evaluate(`(() => ({
       phase: document.getElementById('game-phase-label').textContent,
       trustHidden: document.getElementById('game-trust-btn').hidden,
       counter: !document.getElementById('counter-panel').hidden,
+      singleButtons: !document.getElementById('single-counter-btn').hidden,
     }))()`);
-    if (!singleInfo.phase.includes('单机')) throw new Error('single-player label missing');
+    if (!singleInfo.singleButtons) throw new Error('single-player settings buttons missing');
     if (!singleInfo.trustHidden) throw new Error('trust button should be hidden in single-player');
     if (!singleInfo.counter) throw new Error('single-player counter should be enabled');
+    await singlePage.cdp.waitFor(
+      "!document.body.classList.contains('deal-running')",
+      6000,
+      'single deal complete',
+    );
     await sleep(400);
     await singlePage.cdp.screenshot(path.join(OUT_DIR, 'ui-single.png'));
     console.log('single-player: 3 bots ready');

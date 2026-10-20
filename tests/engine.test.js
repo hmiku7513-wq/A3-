@@ -172,6 +172,59 @@ test('出完牌的玩家仍保留最后一手，其余玩家继续跟牌；全�
   assert.equal(game.turnSeat, 1);
 });
 
+test('积分倍率作用于最终分数，而不是打出顺序', () => {
+  const game = makeGame(seeded(41));
+  game._applyScore(0, { type: 'straightflush', label: '同花顺' });
+  assert.equal(game.getRoundScore(0), 4);
+  game._applyScore(0, { type: 'trips', label: '三条' });
+  assert.equal(game.getRoundScore(0), 6);
+});
+
+test('积分结算：输家扣分，奖池按赢家本场分比例分配', () => {
+  const game = makeGame(seeded(43));
+  game.identitySeats = [0];
+  game.farmerSeats = [1, 2, 3];
+  const oneWinner = game._scoreDeltas('landlord');
+  assert.deepEqual(oneWinner.roundScores, [2, 2, 2, 2]);
+  assert.deepEqual(oneWinner.deltas, [6, -2, -2, -2]);
+  assert.equal(oneWinner.deltas.reduce((sum, value) => sum + value, 0), 0);
+
+  game.identitySeats = [0, 1];
+  game.farmerSeats = [2, 3];
+  const twoWinners = game._scoreDeltas('landlord');
+  assert.deepEqual(twoWinners.deltas, [2, 2, -2, -2]);
+  assert.equal(twoWinners.deltas.reduce((sum, value) => sum + value, 0), 0);
+});
+
+test('借风：身份全明后，出完牌者的队友接管领出', () => {
+  const game = makeGame(seeded(23));
+  game.borrowWind = true;
+  game.hands = [
+    cards('s5'),
+    cards('d6', 'c8'),
+    cards('h9', 's10'),
+    cards('cJ', 'dQ'),
+  ];
+  game.turnSeat = 0;
+  game.mustIncludeDiamond4 = false;
+  game.lastPlay = null;
+  game.passedSeats.clear();
+  game.finishedSeats = [];
+  game.identitySeats = [1, 2];
+  game.farmerSeats = [0, 3];
+  game.revealedIdentities = new Map([
+    [1, new Set(['sA'])],
+    [2, new Set(['s3'])],
+  ]);
+
+  game.play(0, ['s5']);
+  game.pass(1);
+  game.pass(2);
+  game.pass(3);
+  assert.equal(game.lastPlay, null);
+  assert.equal(game.turnSeat, 3);
+});
+
 test('身份牌打出后立即公开并标记地主', () => {
   const game = makeGame(seeded(29));
   const owner = [0, 1, 2, 3].find((seat) =>
