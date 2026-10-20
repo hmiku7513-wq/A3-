@@ -1,0 +1,10 @@
+node_modules
+.git
+.edge-*
+.ssh
+.tools
+screenshots
+tests
+scripts
+*.log
+a3-transfer.zip

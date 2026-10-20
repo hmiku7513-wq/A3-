@@ -8,6 +8,35 @@
 
 ---
 
+## 一页速查（WinSCP 用户看这里）
+
+WinSCP 只负责上传文件，**不能执行 `deploy-vps.sh`**。正确流程是：
+
+1. 用 WinSCP 把 `a3-transfer.zip` 上传到服务器
+2. 回到云服务器控制台，点击「远程连接 / 登录 / WebShell」
+3. 在网页终端里依次粘贴：
+
+```bash
+sudo apt update
+sudo apt install -y unzip
+mkdir -p ~/a3
+cd ~/a3
+unzip -o ~/a3-transfer.zip
+sudo bash deploy-vps.sh
+```
+
+看到 `部署完成：http://服务器公网IP:3213` 即可。
+
+如果连网页终端都没有，就在 Windows 打开 PowerShell，执行：
+
+```powershell
+ssh ubuntu@服务器公网IP
+```
+
+然后再粘贴上面的命令。
+
+---
+
 ## 0. 你会收到什么
 
 ### 必须收到的文件
@@ -147,7 +176,14 @@ ssh -i ~/.ssh/你的密钥 ubuntu@服务器公网IP
 
 ## 4. 上传 a3-transfer.zip
 
-### 方法 A：WinSCP（推荐给不熟悉命令的人）
+> **重要：WinSCP 只能上传/下载文件，不能运行 `.sh` 脚本。**
+>
+> 这不是压缩包损坏，也不是 WinSCP 坏了。WinSCP 相当于“文件搬运工”，不是 Linux 终端。
+> 上传完成后，还需要打开一个 **终端（Terminal）** 来执行后面的命令。
+>
+> 后面第 5 步会详细说明怎么打开终端。
+
+### 上传方法 A：WinSCP（只负责传文件）
 
 1. 下载并打开 WinSCP
 2. 新建站点：
@@ -162,7 +198,9 @@ ssh -i ~/.ssh/你的密钥 ubuntu@服务器公网IP
 5. 把 `a3-transfer.zip` 从左侧拖到右侧
 6. 等待上传完成
 
-### 方法 B：Windows PowerShell 使用 scp
+上传完成后，**不要去双击 `deploy-vps.sh`**，WinSCP 不会执行它。
+
+### 上传方法 B：Windows PowerShell 使用 scp
 
 ```powershell
 scp C:\path\to\a3-transfer.zip ubuntu@服务器公网IP:/home/ubuntu/
@@ -174,19 +212,100 @@ scp C:\path\to\a3-transfer.zip ubuntu@服务器公网IP:/home/ubuntu/
 scp -i C:\path\to\你的密钥.pem C:\path\to\a3-transfer.zip ubuntu@服务器公网IP:/home/ubuntu/
 ```
 
-### 方法 C：Mac / Linux
+### 上传方法 C：Mac / Linux
 
 ```bash
 scp a3-transfer.zip ubuntu@服务器公网IP:/home/ubuntu/
 ```
 
-> 如果上传后提示找不到文件，先执行 `pwd` 看一下当前目录，再用 `ls` 确认压缩包位置。
+> 如果上传后提示找不到文件，先在终端执行 `pwd` 看一下当前目录，再用 `ls` 确认压缩包位置。
 
 ---
 
-## 5. 解压并一键部署
+## 5. 打开终端并执行部署
 
-重新登录服务器，依次执行：
+### 第 1 小步：打开 Linux 终端
+
+WinSCP 用户三选一：
+
+#### 方式 A：云厂商网页终端（最推荐，零安装）
+
+1. 回到购买服务器的云平台控制台
+2. 打开服务器详情
+3. 找到并点击：
+   - 阿里云：「远程连接」→「Workbench」
+   - 腾讯云：「登录」→「标准登录 / WebShell」
+   - 华为云：「远程登录」→「CloudShell / VNC」
+   - AWS：「连接」→「EC2 Instance Connect / Session Manager」
+4. 按提示输入用户名和密码
+5. 看到类似下面的提示符，就说明终端打开了：
+
+```text
+ubuntu@VM-0-1-ubuntu:~$
+```
+
+#### 方式 B：WinSCP 自带的终端入口
+
+在 WinSCP 已经连接服务器的状态下，查看顶部菜单：
+
+```text
+Commands（命令） → Open Terminal（打开终端）
+```
+
+或者：
+
+```text
+Commands（命令） → Open in PuTTY
+```
+
+如果菜单里没有这些选项，说明电脑没装 PuTTY。此时不要折腾，直接用方式 A 的云厂商网页终端，或用方式 C。
+
+#### 方式 C：Windows PowerShell
+
+打开 PowerShell，执行：
+
+```powershell
+ssh ubuntu@服务器公网IP
+```
+
+使用密钥：
+
+```powershell
+ssh -i C:\path\to\你的密钥.pem ubuntu@服务器公网IP
+```
+
+Mac / Linux 用户直接在终端执行：
+
+```bash
+ssh ubuntu@服务器公网IP
+```
+
+### 第 2 小步：确认压缩包位置
+
+终端登录后执行：
+
+```bash
+pwd
+ls
+```
+
+如果上传到了 `/home/ubuntu/`，应该能看到：
+
+```text
+a3-transfer.zip
+```
+
+如果看不到，执行：
+
+```bash
+ls /home/ubuntu
+# root 用户：
+ls /root
+```
+
+### 第 3 小步：执行部署命令
+
+确认能看到压缩包后，依次执行：
 
 ```bash
 sudo apt update

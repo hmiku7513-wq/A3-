@@ -9,6 +9,9 @@
   };
   const RANKS = ['4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A', '2', '3'];
   const RANK_VALUE = Object.fromEntries(RANKS.map((rank, index) => [rank, index]));
+  const CARD_CATALOG = RANKS.flatMap((rank) =>
+    ['d', 'c', 'h', 's'].map((suit) => ({ id: `${suit}${rank}`, rank, suit })),
+  );
   const COMBO_RANK = {
     single: 0,
     pair: 1,
@@ -102,6 +105,11 @@
     tributeHandSignature: '',
     tributeActionKey: null,
     lastTributeEventId: 0,
+    hintMoves: [],
+    hintIndex: -1,
+    hintKey: null,
+    lastDealKey: null,
+    farmerClaimShown: false,
   };
 
   const el = {};
@@ -109,25 +117,36 @@
   function cacheElements() {
     const ids = [
       'screen-landing', 'screen-room', 'screen-game',
+      'game-stage',
       'connection-text', 'landing-error',
-      'name-input', 'create-btn', 'room-code-input', 'join-btn',
+      'name-input', 'create-btn', 'single-btn', 'room-code-input', 'join-btn',
       'room-code-display', 'copy-code-btn', 'copy-link-btn',
       'room-slots', 'room-hint', 'ready-btn', 'start-btn', 'leave-room-btn',
       'tribute-toggle', 'tribute-toggle-label',
+      'counter-toggle', 'counter-toggle-label',
+      'turn-range', 'turn-range-label', 'tribute-range', 'tribute-range-label',
+      'settings-lock-note',
       'screen-tribute', 'tribute-room-code', 'tribute-leave-btn',
-      'tribute-instruction', 'tribute-previous', 'tribute-players',
+      'tribute-instruction', 'tribute-timer', 'tribute-previous', 'tribute-players',
       'tribute-pool', 'tribute-pool-note', 'tribute-return-pool',
       'tribute-return-note', 'tribute-selection-info', 'tribute-clear-btn',
       'tribute-confirm-btn', 'tribute-hand', 'tribute-waiting',
       'tribute-events',
       'game-room-code', 'game-phase-label', 'game-sound-dot', 'game-sound-btn',
-      'game-log-btn', 'game-result-btn', 'game-leave-btn', 'landlord-strip',
-      'seat-top', 'seat-left', 'seat-right', 'turn-banner', 'center-empty',
-      'last-play', 'last-play-owner', 'last-play-type', 'last-play-cards',
-      'pass-bubbles', 'auto-countdown', 'self-pod', 'selection-info',
-      'clear-btn', 'pass-btn', 'play-btn', 'hand', 'action-hint',
+      'game-log-btn', 'game-counter-btn', 'game-trust-btn', 'game-fullscreen-btn', 'game-result-btn', 'game-leave-btn',
+      'landlord-strip', 'counter-panel', 'counter-chips',
+      'seat-top', 'seat-left', 'seat-right', 'turn-banner', 'turn-timer',
+      'center-empty', 'last-play', 'last-play-owner', 'last-play-type',
+      'last-play-cards', 'pass-bubbles', 'auto-countdown', 'self-trick',
+      'self-pod', 'selection-info', 'clear-btn', 'hint-btn', 'pass-btn',
+      'play-btn', 'hand', 'action-hint',
       'toast-layer', 'identity-alert-layer',
+      'deal-animation', 'finish-animation', 'role-claim-layer',
+      'tribute-fly-layer',
+      'orientation-guard', 'orientation-fullscreen-btn',
+      'tribute-fullscreen-btn',
       'rules-modal', 'result-modal', 'result-hero', 'result-kicker',
+      'counter-modal', 'counter-detail', 'counter-summary',
       'result-title', 'result-reason', 'result-teams', 'result-ranking',
       'restart-btn', 'restart-hint', 'result-leave-btn',
       'log-drawer', 'log-close-btn', 'log-list',
@@ -151,6 +170,7 @@
     screens.tribute = el['screen-tribute'];
 
     el['create-btn'].addEventListener('click', createRoom);
+    el['single-btn'].addEventListener('click', startSingle);
     el['join-btn'].addEventListener('click', joinRoom);
     el['leave-room-btn'].addEventListener('click', leaveRoom);
     el['game-leave-btn'].addEventListener('click', leaveRoom);
@@ -174,6 +194,30 @@
       if (app.room.hostId !== app.room.yourId) return;
       send({ type: 'settings', tributeEnabled: !app.room.tributeEnabled });
     });
+
+    el['counter-toggle'].addEventListener('click', () => {
+      if (!app.room || app.room.phase !== 'lobby' || app.pending) return;
+      if (app.room.hostId !== app.room.yourId) return;
+      send({ type: 'settings', counterEnabled: !app.room.counterEnabled });
+    });
+
+    const previewRange = (input, label, suffix = ' 秒') => {
+      if (!input || !label) return;
+      label.textContent = `${input.value}${suffix}`;
+    };
+    el['turn-range'].addEventListener('input', () => previewRange(el['turn-range'], el['turn-range-label']));
+    el['tribute-range'].addEventListener('input', () => previewRange(el['tribute-range'], el['tribute-range-label']));
+    el['turn-range'].addEventListener('change', sendSettingsFromRanges);
+    el['tribute-range'].addEventListener('change', sendSettingsFromRanges);
+
+    el['hint-btn'].addEventListener('click', useHint);
+    el['game-fullscreen-btn'].addEventListener('click', toggleFullscreen);
+    el['tribute-fullscreen-btn'].addEventListener('click', toggleFullscreen);
+    el['orientation-fullscreen-btn'].addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', updateFullscreenUi);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenUi);
+    window.addEventListener('resize', updateStageScale);
+    window.addEventListener('orientationchange', updateStageScale);
 
     el['tribute-leave-btn'].addEventListener('click', leaveRoom);
     el['tribute-confirm-btn'].addEventListener('click', confirmTributeSelection);
@@ -252,6 +296,9 @@
     });
 
     el['game-log-btn'].addEventListener('click', toggleLog);
+    el['game-counter-btn'].addEventListener('click', openCounterDetail);
+    el['counter-panel'].addEventListener('click', openCounterDetail);
+    el['game-trust-btn'].addEventListener('click', toggleTrust);
     el['log-close-btn'].addEventListener('click', closeLog);
     el['game-sound-btn'].addEventListener('click', toggleSound);
     el['game-result-btn'].addEventListener('click', () => {
@@ -280,6 +327,8 @@
           closeLog();
         } else if (!el['result-modal'].hidden) {
           closeModal('result');
+        } else if (!el['counter-modal'].hidden) {
+          closeModal('counter');
         } else if (!el['rules-modal'].hidden) {
           closeModal('rules');
         }
@@ -532,8 +581,10 @@
     app.tributeKey = null;
     app.intentionalLeave = false;
     clearIdentityAlerts();
+    hideFxLayers();
     hideReconnect();
     closeModal('result');
+    closeModal('counter');
     closeLog();
     setUrlRoom(null);
     showScreen('landing');
@@ -590,6 +641,7 @@
       app.handSignature = '';
       app.resultKey = null;
       closeModal('result');
+      closeModal('counter');
       closeLog();
       renderRoom(room);
       showScreen('room');
@@ -605,6 +657,7 @@
         el['result-modal'].hidden = true;
         syncModalState();
       }
+      closeModal('counter');
       handleTributeState(room);
       return;
     }
@@ -619,7 +672,14 @@
       app.prevTurnSeat = null;
       app.tributeSelection.clear();
       app.tributeKey = null;
+      app.hintMoves = [];
+      app.hintIndex = -1;
+      app.hintKey = null;
+      app.farmerClaimShown = false;
       clearIdentityAlerts();
+      hideFxLayers();
+      el['screen-game'].classList.remove('counter-open');
+      closeModal('counter');
       el['result-modal'].hidden = true;
       syncModalState();
       app.lastEventId = maxEventId(room.events);
@@ -633,6 +693,7 @@
 
     renderGame(room);
     showScreen('game');
+    if (isNewGame) playDealAnimation();
 
     if (room.phase === 'playing' && room.turnSeat === room.youSeat &&
         app.prevTurnSeat !== room.youSeat && app.prevTurnSeat !== null) {
@@ -660,8 +721,14 @@
     for (const event of fresh) {
       if (event.type === 'reveal') {
         queueIdentityAlert(event);
+        setTimeout(() => showRoleClaimAnimation(event), 180);
+        if (!app.farmerClaimShown && room.bothLandlordsRevealed) {
+          app.farmerClaimShown = true;
+          setTimeout(() => showFarmerRevealAnimation(room), 520);
+        }
       } else if (event.type === 'finish') {
         showToast(event.text, 'gold', 3800);
+        showFinishAnimation(event);
         playSound('finish');
       } else if (event.type === 'trick') {
         showToast(event.text, '', 2800);
@@ -674,6 +741,116 @@
 
   function resultKey(room) {
     return `${room.code}:${room.startedAt || ''}:${room.result?.winner || ''}:${(room.result?.finishOrder || []).join(',')}`;
+  }
+
+  /* ---------------- Non-blocking table animations ---------------- */
+
+  function hideFxLayers() {
+    for (const id of ['deal-animation', 'finish-animation', 'role-claim-layer', 'tribute-fly-layer']) {
+      if (!el[id]) continue;
+      el[id].hidden = true;
+      el[id].innerHTML = '';
+    }
+  }
+
+  function playDealAnimation() {
+    const layer = el['deal-animation'];
+    if (!layer) return;
+    layer.hidden = false;
+    const targets = [
+      { x: '-36vw', y: '-26vh', rot: '-18deg' },
+      { x: '-12vw', y: '-30vh', rot: '-8deg' },
+      { x: '12vw', y: '-30vh', rot: '8deg' },
+      { x: '36vw', y: '-26vh', rot: '18deg' },
+      { x: '-36vw', y: '8vh', rot: '-10deg' },
+      { x: '36vw', y: '8vh', rot: '10deg' },
+      { x: '-20vw', y: '24vh', rot: '-5deg' },
+      { x: '20vw', y: '24vh', rot: '5deg' },
+    ];
+    layer.innerHTML = `
+      <div class="deal-title">发牌中…</div>
+      <div class="deal-deck">
+        ${targets.map((target, index) => `
+          <span class="deal-card" style="--tx:${target.x};--ty:${target.y};--rot:${target.rot};--delay:${index * 55}ms">
+            <i>A3</i>
+          </span>
+        `).join('')}
+      </div>
+    `;
+    setTimeout(() => {
+      layer.hidden = true;
+      layer.innerHTML = '';
+    }, 1550);
+  }
+
+  function showFinishAnimation(event) {
+    const layer = el['finish-animation'];
+    if (!layer) return;
+    const player = playerAtSeat(event.seat);
+    layer.hidden = false;
+    layer.innerHTML = `
+      <div class="finish-flare"></div>
+      <div class="finish-banner">
+        <span class="finish-crown">✦</span>
+        <b>${esc(player?.name || '玩家')} 出完啦！</b>
+        <em>第 ${Number(event.place) || 1} 顺位</em>
+      </div>
+      <div class="finish-confetti">${Array.from({ length: 14 }, (_, index) => {
+        const tx = (index - 6.5) * 7.2;
+        const ty = ((index % 3) - 1) * 18 + 20;
+        return `<i style="--i:${index};--tx:${tx}vw;--ty:${ty}vh;--rot:${index * 47}deg"></i>`;
+      }).join('')}</div>
+    `;
+    setTimeout(() => {
+      layer.hidden = true;
+      layer.innerHTML = '';
+    }, 2100);
+  }
+
+  function showRoleClaimAnimation(event) {
+    const layer = el['role-claim-layer'];
+    if (!layer) return;
+    const player = playerAtSeat(event.seat);
+    layer.hidden = false;
+    const banner = document.createElement('div');
+    banner.className = 'role-claim-banner landlord-claim';
+    banner.innerHTML = `
+      <span class="role-claim-crown">♛</span>
+      <span><b>${esc(player?.name || '玩家')}</b> 归入地主阵营</span>
+      <em>${event.double ? '双地主亮牌' : '身份牌现身'}</em>
+    `;
+    layer.appendChild(banner);
+    setTimeout(() => {
+      banner.classList.add('out');
+      setTimeout(() => {
+        banner.remove();
+        if (layer.childElementCount === 0) layer.hidden = true;
+      }, 350);
+    }, 1700);
+  }
+
+  function showFarmerRevealAnimation(room) {
+    const layer = el['role-claim-layer'];
+    if (!layer) return;
+    const names = (room.players || [])
+      .filter((player) => player.farmerRevealed && !player.landlordRevealed)
+      .map((player) => player.name);
+    layer.hidden = false;
+    const banner = document.createElement('div');
+    banner.className = 'role-claim-banner farmer-claim';
+    banner.innerHTML = `
+      <span class="role-claim-mark">农</span>
+      <span><b>地主全部现身</b> ${names.length ? `${esc(names.join('、'))} 归为农民` : '余下玩家归为农民'}</span>
+      <em>阵营锁定</em>
+    `;
+    layer.appendChild(banner);
+    setTimeout(() => {
+      banner.classList.add('out');
+      setTimeout(() => {
+        banner.remove();
+        if (layer.childElementCount === 0) layer.hidden = true;
+      }, 350);
+    }, 2400);
   }
 
   /* ---------------- Screen / room rendering ---------------- */
@@ -690,6 +867,7 @@
     }
     app.currentScreen = name;
     document.body.classList.toggle('in-game', name === 'game' || name === 'tribute');
+    if (name === 'game') updateStageScale();
     if (name !== 'game') closeLog();
     if (name === 'landing') {
       document.title = 'A3 · 欢乐暗牌';
@@ -748,6 +926,27 @@
     app.reconnectingSession = false;
     setFormBusy(true);
     send({ type: 'create', name });
+  }
+
+  function startSingle() {
+    setLandingError('');
+    if (!app.connected) {
+      setLandingError('还在连服务器，稍等一下下！');
+      return;
+    }
+    const name = requireName();
+    if (!name) return;
+    app.intentionalLeave = false;
+    app.reconnectingSession = false;
+    setFormBusy(true);
+    send({ type: 'single', name });
+  }
+
+  function toggleTrust() {
+    const room = app.room;
+    const me = selfPlayer();
+    if (!room || !me || room.singlePlayer || room.phase === 'ended') return;
+    send({ type: 'trust', enabled: !me.autoPlay });
   }
 
   function joinRoom() {
@@ -846,6 +1045,8 @@
     const room = app.room;
     if (!room || room.phase !== 'lobby') return;
     updateTributeToggle(room);
+    updateCounterToggle(room);
+    updateTimeSettings(room);
     const me = selfPlayer();
     const isHost = room.hostId === room.yourId;
     const count = room.players.length;
@@ -900,6 +1101,90 @@
     el['tribute-toggle-label'].textContent = room.tributeEnabled ? '开启' : '关闭';
   }
 
+  function updateCounterToggle(room) {
+    const button = el['counter-toggle'];
+    if (!button) return;
+    const isHost = room.hostId === room.yourId;
+    button.disabled = !isHost || room.phase !== 'lobby';
+    button.classList.toggle('on', Boolean(room.counterEnabled));
+    button.setAttribute('aria-checked', room.counterEnabled ? 'true' : 'false');
+    button.title = isHost ? '点击切换记牌器' : '记牌器由房主设置';
+    el['counter-toggle-label'].textContent = room.counterEnabled ? '开启' : '关闭';
+  }
+
+  function updateTimeSettings(room) {
+    const isHost = room.hostId === room.yourId;
+    const turn = Number(room.turnSeconds || 20);
+    const tribute = Number(room.tributeSeconds || 30);
+    for (const input of [el['turn-range'], el['tribute-range']]) {
+      if (!input) continue;
+      input.disabled = !isHost || room.phase !== 'lobby';
+    }
+    if (document.activeElement !== el['turn-range']) el['turn-range'].value = String(turn);
+    if (document.activeElement !== el['tribute-range']) el['tribute-range'].value = String(tribute);
+    el['turn-range-label'].textContent = `${turn} 秒`;
+    el['tribute-range-label'].textContent = `${tribute} 秒`;
+    el['settings-lock-note'].hidden = isHost;
+  }
+
+  function sendSettingsFromRanges() {
+    const room = app.room;
+    if (!room || room.phase !== 'lobby') return;
+    if (room.hostId !== room.yourId || app.pending) return;
+    send({
+      type: 'settings',
+      turnSeconds: Number(el['turn-range'].value),
+      tributeSeconds: Number(el['tribute-range'].value),
+    });
+  }
+
+  async function toggleFullscreen() {
+    try {
+      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+      if (!fullscreenElement) {
+        const target = document.documentElement;
+        const request = target.requestFullscreen || target.webkitRequestFullscreen;
+        if (!request) {
+          showToast('这个浏览器不支持全屏，横过来也能玩哦！', 'error');
+          return;
+        }
+        await request.call(target);
+        if (screen.orientation?.lock) {
+          try {
+            await screen.orientation.lock('landscape');
+          } catch {
+            // 部分手机浏览器不允许锁定方向，横屏提示仍然有效。
+          }
+        }
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+        if (screen.orientation?.unlock) screen.orientation.unlock();
+      }
+    } catch {
+      showToast('全屏失败啦，试试把手机横过来玩！', 'error');
+    }
+    updateFullscreenUi();
+  }
+
+  function updateFullscreenUi() {
+    const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    for (const button of [el['game-fullscreen-btn'], el['tribute-fullscreen-btn']]) {
+      if (!button) continue;
+      button.textContent = active ? '⤢' : '⛶';
+      button.title = active ? '退出全屏' : '全屏';
+      button.setAttribute('aria-label', active ? '退出全屏' : '切换全屏');
+    }
+    updateStageScale();
+  }
+
+  function updateStageScale() {
+    const stage = el['game-stage'];
+    if (!stage) return;
+    const scale = Math.min(window.innerWidth / 1280, window.innerHeight / 600);
+    stage.style.setProperty('--stage-scale', String(Math.max(0.2, Math.min(1.75, scale))));
+  }
+
   /* ---------------- Tribute phase ---------------- */
 
   function handleTributeState(room) {
@@ -909,10 +1194,12 @@
       app.tributeSelection.clear();
       app.tributeHandSignature = '';
       app.tributeActionKey = null;
-      app.lastTributeEventId = maxEventId(room.events);
+      app.lastTributeEventId = 0;
+      if (el['tribute-fly-layer']) {
+        el['tribute-fly-layer'].hidden = true;
+        el['tribute-fly-layer'].innerHTML = '';
+      }
       showToast('进贡还贡时间到！按规矩来，谁也不许赖账！', 'gold', 4200);
-    } else {
-      app.lastTributeEventId = Math.max(app.lastTributeEventId, maxEventId(room.events));
     }
     const actionKey = `${room.stage}:${room.currentSeat}:${room.completed ? 'done' : ''}`;
     if (app.tributeActionKey !== actionKey) {
@@ -923,6 +1210,69 @@
     renderTribute(room);
     showScreen('tribute');
     updateTributeAction();
+    processTributeEvents(room);
+  }
+
+  function processTributeEvents(room) {
+    const events = Array.isArray(room.events) ? room.events : [];
+    const fresh = events.filter((event) => Number(event.id) > app.lastTributeEventId);
+    if (fresh.length === 0) return;
+    for (const event of fresh) {
+      if (['tribute', 'tribute_receive', 'return', 'return_receive'].includes(event.type)) {
+        animateTributeEvent(event);
+      }
+    }
+    app.lastTributeEventId = fresh[fresh.length - 1].id;
+  }
+
+  function tributeSeatElement(seat) {
+    return document.querySelector(`#tribute-players .tribute-player[data-seat="${seat}"]`);
+  }
+
+  function flyTributeCard(card, fromNode, toNode, delay = 0) {
+    const layer = el['tribute-fly-layer'];
+    if (!layer || !fromNode || !toNode || !card) return;
+    layer.hidden = false;
+    const from = fromNode.getBoundingClientRect();
+    const to = toNode.getBoundingClientRect();
+    const suit = SUITS[card.suit] || SUITS.s;
+    const node = document.createElement('div');
+    node.className = `flying-card ${suit.red ? 'red' : ''}`;
+    node.innerHTML = `<b>${esc(card.rank)}</b><i>${suit.symbol}</i>`;
+    node.style.left = `${from.left + from.width / 2}px`;
+    node.style.top = `${from.top + from.height / 2}px`;
+    layer.appendChild(node);
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const animation = node.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0.8) rotate(-8deg)', opacity: 0.2 },
+        { transform: `translate(calc(-50% + ${dx * 0.55}px), calc(-50% + ${dy * 0.55 - 30}px)) scale(1.08) rotate(3deg)`, opacity: 1, offset: 0.55 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(0.72) rotate(0deg)`, opacity: 0 },
+      ],
+      { duration: 780, delay, easing: 'cubic-bezier(.2,.8,.3,1)', fill: 'both' },
+    );
+    animation.onfinish = () => {
+      node.remove();
+      if (layer.childElementCount === 0) layer.hidden = true;
+    };
+  }
+
+  function animateTributeEvent(event) {
+    const pool = el['tribute-pool'];
+    const returnPool = el['tribute-return-pool'];
+    const player = tributeSeatElement(event.seat);
+    if (event.type === 'tribute') {
+      flyTributeCard(event.card, player, pool, 0);
+    } else if (event.type === 'tribute_receive') {
+      flyTributeCard(event.card, pool, player, 0);
+    } else if (event.type === 'return') {
+      (event.cards || []).forEach((card, index) => {
+        flyTributeCard(card, player, returnPool, index * 120);
+      });
+    } else if (event.type === 'return_receive') {
+      flyTributeCard(event.card, returnPool, player, 0);
+    }
   }
 
   function renderTribute(room) {
@@ -944,7 +1294,7 @@
         player.connected === false ? 'offline' : '',
       ].filter(Boolean).join(' ');
       return `
-        <div class="${classes}" style="--hue:${hueFor(player.seat, player.name)}">
+        <div class="${classes}" data-seat="${player.seat}" style="--hue:${hueFor(player.seat, player.name)}">
           <span class="tribute-role">${player.isWinner ? '赢家' : '输家'}</span>
           <span class="tribute-avatar">${initial(player.name)}</span>
           <b>${esc(player.name)}${player.seat === youSeat ? ' · 你' : ''}</b>
@@ -1120,6 +1470,7 @@
       : `等待 ${current?.name || '其他玩家'} 挑牌中…`;
     el['tribute-confirm-btn'].hidden = room.completed;
     if (key === 'tribute-confirm-btn') el['tribute-confirm-btn'].focus({ preventScroll: true });
+    updateCountdown();
   }
 
   function renderTributeEvents(room) {
@@ -1154,15 +1505,78 @@
     el['game-room-code'].textContent = room.code;
     el['game-phase-label'].textContent = room.phase === 'ended'
       ? '对局结束'
-      : `第 ${room.round || 1} 局 · 欢乐进行中`;
+      : `第 ${room.round || 1} 局 · ${room.singlePlayer ? '单机欢乐中' : '欢乐进行中'}`;
     el['game-result-btn'].hidden = room.phase !== 'ended';
     updateSoundUi();
+    updateTrustButton(room);
     renderLandlordStrip(room);
+    renderCounter(room);
     renderPods(room);
     renderCenter(room);
     renderHand(room);
     updateActionArea();
     renderLog(room);
+  }
+
+  function updateTrustButton(room) {
+    const button = el['game-trust-btn'];
+    if (!button) return;
+    const me = playerAtSeat(room.youSeat);
+    button.hidden = Boolean(room.singlePlayer);
+    button.classList.toggle('on', Boolean(me?.autoPlay));
+    button.textContent = me?.autoPlay ? '取消' : '托管';
+    button.title = me?.autoPlay ? '取消自动出牌' : '开启自动出牌';
+    button.disabled = room.phase === 'ended';
+  }
+
+  function renderCounter(room) {
+    const counts = room.cardCounter;
+    const visible = Boolean(room.counterEnabled && counts);
+    el['counter-panel'].hidden = !visible;
+    el['game-counter-btn'].hidden = !visible;
+    if (!visible) {
+      el['screen-game'].classList.remove('counter-open');
+      el['counter-chips'].innerHTML = '';
+      return;
+    }
+    el['counter-chips'].innerHTML = RANKS.map((rank) => {
+      const count = Number(counts[rank] || 0);
+      return `<span class="counter-chip ${count === 0 ? 'empty' : ''}" title="${esc(rank)} 还剩 ${count} 张">
+        <b>${esc(rank)}</b><em>${count}</em>
+      </span>`;
+    }).join('');
+  }
+
+  function openCounterDetail() {
+    const room = app.room;
+    if (!room || !room.counterEnabled) return;
+    renderCounterDetail(room);
+    openModal('counter');
+  }
+
+  function renderCounterDetail(room) {
+    const played = new Set(room.playedCardIds || []);
+    const own = new Set((room.hand || []).map((card) => card.id));
+    const counts = room.cardCounter || {};
+    const total = Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
+    el['counter-summary'].textContent =
+      `不含你的手牌，其他玩家手中还剩 ${total} 张；已打出 ${played.size} 张。`;
+    el['counter-detail'].innerHTML = RANKS.map((rank) => {
+      const stack = CARD_CATALOG
+        .filter((card) => card.rank === rank)
+        .map((card) => {
+          const suit = SUITS[card.suit];
+          const status = played.has(card.id) ? 'played' : own.has(card.id) ? 'own' : 'unknown';
+          const statusLabel = status === 'played' ? '已打出' : status === 'own' ? '你的手牌' : '未打出';
+          return `<span class="detail-card ${status} ${suit.red ? 'red' : ''}" title="${esc(suit.name + card.rank)} · ${statusLabel}">
+            <b>${suit.symbol}</b><i>${esc(card.rank)}</i>
+          </span>`;
+        }).join('');
+      return `<section class="counter-stack ${Number(counts[rank] || 0) === 0 ? 'empty' : ''}">
+        <header><b>${esc(rank)}</b><em>剩 ${Number(counts[rank] || 0)}</em></header>
+        <div class="detail-stack">${stack}</div>
+      </section>`;
+    }).join('');
   }
 
   function renderLandlordStrip(room) {
@@ -1194,6 +1608,8 @@
   function playerBadges(player) {
     const badges = [];
     if (player.isHost) badges.push('<span class="badge">房主</span>');
+    if (player.isBot) badges.push('<span class="badge bot-badge">电脑</span>');
+    if (player.autoPlay && !player.isBot) badges.push('<span class="badge trust-badge">托管中</span>');
     if (player.connected === false) badges.push('<span class="badge offline-badge">离线</span>');
     if (player.finished) {
       badges.push(`<span class="badge finish-badge">第 ${player.place} 顺位</span>`);
@@ -1204,8 +1620,28 @@
           <span class="mini-identities">${player.revealedIdentityCards.map(miniIdentity).join('')}</span>
         </span>
       `);
+    } else if (player.farmerRevealed) {
+      badges.push('<span class="badge farmer-badge">农民</span>');
+    }
+    if (!player.finished && player.handCount > 0 && player.handCount <= 2) {
+      badges.push(`<span class="badge report-badge">${player.handCount === 1 ? '报单' : '报双'}</span>`);
     }
     return badges.join('');
+  }
+
+  function trickPlayFor(room, seat) {
+    return (room.trickPlays || []).find((entry) => entry.seat === seat) || null;
+  }
+
+  function trickMarkup(entry, small = false) {
+    if (!entry) return '';
+    if (entry.passed) return '<span class="trick-pass">过</span>';
+    return `<span class="trick-cards ${small ? 'small' : ''}">${entry.cards.map((card) => {
+      const suit = SUITS[card.suit] || SUITS.s;
+      return `<span class="trick-card ${suit.red ? 'red' : ''}" title="${esc(suit.name + card.rank)}">
+        <b>${esc(card.rank)}</b><i>${suit.symbol}</i>
+      </span>`;
+    }).join('')}</span>`;
   }
 
   function podMarkup(player, room) {
@@ -1214,8 +1650,13 @@
       'player-pod',
       isTurn ? 'turn' : '',
       player.landlordRevealed ? 'landlord' : '',
+      player.farmerRevealed ? 'farmer' : '',
       player.finished ? 'finished' : '',
       player.connected === false ? 'offline' : '',
+      player.isBot ? 'bot' : '',
+      player.autoPlay ? 'trusted' : '',
+      player.handCount === 1 ? 'report-one' : '',
+      player.handCount === 2 ? 'report-two' : '',
     ].filter(Boolean).join(' ');
     return `
       <div class="${classes}" style="--hue:${hueFor(player.seat, player.name)}" data-seat="${player.seat}">
@@ -1229,6 +1670,7 @@
           <span class="card-back-mini"></span><span class="card-back-mini"></span><span class="card-back-mini"></span>
           <span class="stack-count">${player.finished ? '✓' : player.handCount}</span>
         </div>
+        ${trickMarkup(trickPlayFor(room, player.seat)) ? `<div class="pod-trick">${trickMarkup(trickPlayFor(room, player.seat))}</div>` : ''}
       </div>
     `;
   }
@@ -1245,10 +1687,19 @@
     const me = playerAtSeat(you);
     if (!me) {
       el['self-pod'].innerHTML = '';
+      el['self-trick'].hidden = true;
       return;
     }
     const isTurn = room.phase === 'playing' && room.turnSeat === room.youSeat;
-    el['self-pod'].className = `self-pod${isTurn ? ' turn' : ''}`;
+    el['self-pod'].className = [
+      'self-pod',
+      isTurn ? 'turn' : '',
+      me.landlordRevealed ? 'landlord' : '',
+      me.farmerRevealed ? 'farmer' : '',
+      me.autoPlay ? 'trusted' : '',
+      me.handCount === 1 ? 'report-one' : '',
+      me.handCount === 2 ? 'report-two' : '',
+    ].filter(Boolean).join(' ');
     el['self-pod'].innerHTML = `
       <div class="self-avatar" style="--hue:${hueFor(me.seat, me.name)}">${initial(me.name)}</div>
       <div class="self-info">
@@ -1257,6 +1708,12 @@
         <div class="self-tags">${playerBadges(me)}</div>
       </div>
     `;
+
+    const selfTrick = trickPlayFor(room, room.youSeat);
+    el['self-trick'].hidden = !selfTrick;
+    el['self-trick'].innerHTML = selfTrick
+      ? `<span class="self-trick-label">本轮</span>${trickMarkup(selfTrick, true)}`
+      : '';
   }
 
   function renderCenter(room) {
@@ -1268,7 +1725,7 @@
     if (room.phase === 'ended') {
       el['turn-banner'].textContent = '这局结束啦';
     } else if (isYourTurn) {
-      el['turn-banner'].textContent = room.noLegalPlay ? '没牌能压，准备自动过！' : '轮到你啦，出牌！';
+      el['turn-banner'].textContent = '轮到你啦，出牌！';
     } else {
       el['turn-banner'].textContent = `等 ${current?.name || '下一位玩家'} 出牌中…`;
     }
@@ -1403,14 +1860,12 @@
     const canPass = room.phase === 'playing' && isYourTurn && Boolean(room.lastPlay) && !app.pending;
     el['pass-btn'].disabled = !canPass;
     el['pass-btn'].textContent = '过！';
-    el['pass-btn'].classList.toggle('urgent', Boolean(isYourTurn && room.noLegalPlay));
+    el['hint-btn'].disabled = !(room.phase === 'playing' && isYourTurn && !app.pending);
 
     if (room.phase === 'ended') {
       el['action-hint'].textContent = '这局结束啦，点右上角“看结果”瞅瞅谁赢了！';
     } else if (isYourTurn) {
-      if (room.noLegalPlay) {
-        el['action-hint'].textContent = '没牌能压啦，3 秒后自动帮你过！';
-      } else if (!room.lastPlay && room.mustIncludeDiamond4) {
+      if (!room.lastPlay && room.mustIncludeDiamond4) {
         el['action-hint'].textContent = '第一手必须带 ♦4 哦，先手不能过！';
       } else if (!room.lastPlay) {
         el['action-hint'].textContent = '这轮你说了算，想出啥牌型都行！';
@@ -1427,36 +1882,53 @@
 
   function updateCountdown() {
     const room = app.room;
-    const node = el['auto-countdown'];
-    if (!node) return;
+    const now = Date.now() + app.serverOffset;
+    const turnNode = el['turn-timer'];
+    const tributeNode = el['tribute-timer'];
+    const autoNode = el['auto-countdown'];
+
+    const turnRemaining = room?.phase === 'playing' && room.turnDeadline
+      ? Math.max(0, (room.turnDeadline - now) / 1000)
+      : null;
+    if (turnNode) {
+      turnNode.hidden = turnRemaining === null;
+      turnNode.classList.toggle('low', turnRemaining !== null && turnRemaining <= 5);
+      if (turnRemaining !== null) {
+        turnNode.textContent = turnRemaining <= 0
+          ? '时间到，正在自动处理…'
+          : `剩余 ${Math.ceil(turnRemaining)}s`;
+      }
+    }
+
+    const tributeRemaining = room?.phase === 'tribute' && room.actionDeadline
+      ? Math.max(0, (room.actionDeadline - now) / 1000)
+      : null;
+    if (tributeNode) {
+      tributeNode.hidden = tributeRemaining === null;
+      tributeNode.classList.toggle('low', tributeRemaining !== null && tributeRemaining <= 5);
+      if (tributeRemaining !== null) {
+        tributeNode.textContent = tributeRemaining <= 0
+          ? '时间到，正在自动选择…'
+          : `剩余 ${Math.ceil(tributeRemaining)}s`;
+      }
+    }
+
+    if (!autoNode) return;
     if (!room || room.phase !== 'playing' || !room.autoAction) {
-      node.hidden = true;
-      node.classList.remove('offline');
+      autoNode.hidden = true;
+      autoNode.classList.remove('offline');
       return;
     }
     const auto = room.autoAction;
-    const remaining = Math.max(0, (auto.at - (Date.now() + app.serverOffset)) / 1000);
+    const remaining = Math.max(0, (auto.at - now) / 1000);
     const player = playerAtSeat(auto.seat);
     const isYou = auto.seat === room.youSeat;
     const who = isYou ? '你' : (player?.name || '该玩家');
-    node.hidden = false;
-    node.classList.toggle('offline', auto.kind === 'offline');
-
-    if (remaining <= 0) {
-      node.textContent = '正在自动处理…';
-    } else if (auto.kind === 'offline') {
-      node.textContent = isYou
-        ? `连接中断，${remaining.toFixed(1)}s 后自动托管`
-        : `${who} 离线，${remaining.toFixed(1)}s 后自动托管`;
-    } else {
-      node.textContent = isYou
-        ? `无牌可出，${remaining.toFixed(1)}s 后自动跳过`
-        : `${who} 无牌可出，${remaining.toFixed(1)}s 后自动跳过`;
-    }
-
-    if (isYou && auto.kind === 'no_moves') {
-      el['pass-btn'].classList.add('urgent');
-    }
+    autoNode.hidden = false;
+    autoNode.classList.add('offline');
+    autoNode.textContent = remaining <= 0
+      ? '正在自动托管…'
+      : `${who} 离线，${remaining.toFixed(1)}s 后自动托管`;
   }
 
   /* ---------------- Client-side rule preview ---------------- */
@@ -1592,6 +2064,67 @@
     }
     if (basic) return false;
     return compareClient(combo, previous) > 0;
+  }
+
+  function combinations(items, size) {
+    const result = [];
+    const walk = (start, picked) => {
+      if (picked.length === size) {
+        result.push(picked.slice());
+        return;
+      }
+      for (let index = start; index < items.length; index += 1) {
+        picked.push(items[index]);
+        walk(index + 1, picked);
+        picked.pop();
+      }
+    };
+    walk(0, []);
+    return result;
+  }
+
+  function computeHintMoves(room) {
+    const hand = sortHand(room.hand || []);
+    const key = [
+      hand.map((card) => card.id).join(','),
+      room.lastPlay?.cards?.map((card) => card.id).join(',') || 'lead',
+      room.mustIncludeDiamond4 ? 'd4' : '',
+    ].join('|');
+    if (app.hintKey === key && app.hintMoves.length > 0) return app.hintMoves;
+
+    const previous = room.lastPlay ? classifyClient(room.lastPlay.cards) : null;
+    const moves = [];
+    for (const size of [1, 2, 3, 5]) {
+      for (const picked of combinations(hand, size)) {
+        if (room.mustIncludeDiamond4 && !picked.some((card) => card.id === 'd4')) continue;
+        const combo = classifyClient(picked);
+        if (!combo) continue;
+        if (previous && !canBeatClient(combo, previous)) continue;
+        moves.push({ cards: picked, combo });
+      }
+    }
+    moves.sort((a, b) => compareClient(a.combo, b.combo) || a.cards.length - b.cards.length);
+    if (app.hintKey !== key) app.hintIndex = -1;
+    app.hintKey = key;
+    app.hintMoves = moves;
+    return moves;
+  }
+
+  function useHint() {
+    const room = app.room;
+    if (!room || room.phase !== 'playing' || room.turnSeat !== room.youSeat || app.pending) return;
+    const moves = computeHintMoves(room);
+    if (moves.length === 0) {
+      showToast('这轮没有能压过的牌，点“过”就行啦！', 'error');
+      return;
+    }
+    app.hintIndex = ((app.hintIndex || 0) + 1) % moves.length;
+    const move = moves[app.hintIndex];
+    app.selected = new Set(move.cards.map((card) => card.id));
+    updateHandSelection();
+    updateActionArea();
+    const suffix = moves.length > 1 ? `（${app.hintIndex + 1}/${moves.length}，再点提示可轮换）` : '';
+    showToast(`提示：${move.combo.label}${suffix}`, 'gold', 2200);
   }
 
   function evaluateSelection(cards, room) {
@@ -1798,7 +2331,11 @@
   }
 
   function openModal(name) {
-    const modal = name === 'rules' ? el['rules-modal'] : el['result-modal'];
+    const modal = name === 'rules'
+      ? el['rules-modal']
+      : name === 'counter'
+        ? el['counter-modal']
+        : el['result-modal'];
     if (!modal) return;
     app.modalReturnFocus = document.activeElement;
     modal.hidden = false;
@@ -1808,7 +2345,11 @@
   }
 
   function closeModal(name) {
-    const modal = name === 'rules' ? el['rules-modal'] : el['result-modal'];
+    const modal = name === 'rules'
+      ? el['rules-modal']
+      : name === 'counter'
+        ? el['counter-modal']
+        : el['result-modal'];
     if (!modal) return;
     modal.hidden = true;
     syncModalState();
@@ -1822,7 +2363,7 @@
   }
 
   function syncModalState() {
-    const open = !el['rules-modal'].hidden || !el['result-modal'].hidden;
+    const open = !el['rules-modal'].hidden || !el['result-modal'].hidden || !el['counter-modal'].hidden;
     document.body.classList.toggle('modal-open', open);
   }
 
@@ -2031,6 +2572,8 @@
     cacheElements();
     bindEvents();
     updateSoundUi();
+    updateFullscreenUi();
+    updateStageScale();
 
     el['name-input'].value = app.name;
     const params = new URLSearchParams(location.search);

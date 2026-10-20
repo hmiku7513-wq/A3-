@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="600" viewBox="0 0 1280 600">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#061b3e"/>
+      <stop offset=".28" stop-color="#0d477f"/>
+      <stop offset=".62" stop-color="#1778a8"/>
+      <stop offset="1" stop-color="#0b355f"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".38" r=".55">
+      <stop offset="0" stop-color="#ffe9a3" stop-opacity=".75"/>
+      <stop offset=".42" stop-color="#8ed8ff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#0a2b58" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff6c9"/>
+      <stop offset=".35" stop-color="#ffd65f"/>
+      <stop offset=".7" stop-color="#d9952c"/>
+      <stop offset="1" stop-color="#8e5214"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffcf56"/>
+      <stop offset=".55" stop-color="#d43b24"/>
+      <stop offset="1" stop-color="#7b1c16"/>
+    </linearGradient>
+    <linearGradient id="curtain" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9e1b22"/>
+      <stop offset=".55" stop-color="#d83a2c"/>
+      <stop offset="1" stop-color="#6d101b"/>
+    </linearGradient>
+    <linearGradient id="cloud" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".46"/>
+      <stop offset="1" stop-color="#bfeaff" stop-opacity=".06"/>
+    </linearGradient>
+    <pattern id="lattice" width="34" height="34" patternUnits="userSpaceOnUse">
+      <path d="M0 17H34M17 0V34" stroke="#ffd65f" stroke-opacity=".12" stroke-width="1"/>
+      <circle cx="17" cy="17" r="3" fill="none" stroke="#ffd65f" stroke-opacity=".13"/>
+    </pattern>
+    <radialGradient id="vignette" cx=".5" cy=".5" r=".75">
+      <stop offset=".55" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#020b18" stop-opacity=".62"/>
+    </radialGradient>
+    <filter id="soft">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="600" fill="url(#sky)"/>
+  <rect width="1280" height="600" fill="url(#sun)"/>
+
+  <!-- distant clouds -->
+  <g fill="url(#cloud)" filter="url(#soft)">
+    <ellipse cx="140" cy="94" rx="150" ry="34"/>
+    <ellipse cx="255" cy="78" rx="92" ry="26"/>
+    <ellipse cx="1030" cy="84" rx="170" ry="38"/>
+    <ellipse cx="890" cy="64" rx="88" ry="24"/>
+    <ellipse cx="650" cy="54" rx="130" ry="22"/>
+    <ellipse cx="440" cy="116" rx="100" ry="20"/>
+  </g>
+
+  <!-- distant palace skyline -->
+  <g opacity=".8">
+    <path d="M0 246h1280v40H0z" fill="#07294f"/>
+    <path d="M305 246v-48h-44l92-62 92 62h-44v48z" fill="url(#roof)"/>
+    <path d="M375 230h-62v-30h62z" fill="#123c63"/>
+    <path d="M838 246v-40h-38l82-54 82 54h-38v40z" fill="url(#roof)"/>
+    <path d="M900 232h-54v-26h54z" fill="#123c63"/>
+    <path d="M610 228v-36h-28l58-42 58 42h-28v36z" fill="url(#gold)" opacity=".72"/>
+  </g>
+
+  <!-- side pagodas -->
+  <g>
+    <path d="M-30 330 92 266l122 64z" fill="url(#roof)" stroke="#ffd76a" stroke-width="3"/>
+    <path d="M20 330h140v150H20z" fill="#0c3155" stroke="#d99a34" stroke-width="3"/>
+    <path d="M32 344h116v24H32zM32 386h116v24H32zM32 428h116v24H32z" fill="url(#lattice)" opacity=".85"/>
+    <path d="M-10 480h200" stroke="#ffd76a" stroke-width="5"/>
+    <path d="M1080 330 1208 264l112 66z" fill="url(#roof)" stroke="#ffd76a" stroke-width="3"/>
+    <path d="M1104 330h150v150h-150z" fill="#0c3155" stroke="#d99a34" stroke-width="3"/>
+    <path d="M1116 344h126v24h-126zM1116 386h126v24h-126zM1116 428h126v24h-126z" fill="url(#lattice)" opacity=".85"/>
+    <path d="M1070 480h220" stroke="#ffd76a" stroke-width="5"/>
+  </g>
+
+  <!-- red curtains and gold trim -->
+  <path d="M0 0h170c-28 80-44 154-34 236 7 60 24 112 46 164H0z" fill="url(#curtain)" opacity=".82"/>
+  <path d="M1280 0h-170c28 80 44 154 34 236-7 60-24 112-46 164h182z" fill="url(#curtain)" opacity=".82"/>
+  <path d="M0 0h1280v16H0z" fill="url(#gold)" opacity=".65"/>
+  <path d="M0 584h1280v16H0z" fill="url(#gold)" opacity=".65"/>
+  <path d="M0 0v600M1280 0v600" stroke="#ffd65f" stroke-width="4" opacity=".55"/>
+
+  <!-- centre table glow -->
+  <ellipse cx="640" cy="390" rx="520" ry="188" fill="#021b2c" opacity=".4"/>
+  <ellipse cx="640" cy="382" rx="500" ry="172" fill="none" stroke="#ffd76a" stroke-width="4" opacity=".55"/>
+  <ellipse cx="640" cy="382" rx="470" ry="154" fill="none" stroke="#ffe6a2" stroke-width="1.5" opacity=".35"/>
+
+  <!-- corner ornaments -->
+  <g fill="none" stroke="url(#gold)" stroke-width="4" opacity=".8">
+    <path d="M30 74c0-28 22-44 52-44M30 74v40M118 30h54"/>
+    <path d="M1250 74c0-28-22-44-52-44M1250 74v40M1162 30h-54"/>
+    <path d="M30 526c0 28 22 44 52 44M30 526v-40M118 570h54"/>
+    <path d="M1250 526c0 28-22 44-52 44M1250 526v-40M1162 570h-54"/>
+  </g>
+
+  <rect width="1280" height="600" fill="url(#vignette)"/>
+</svg>

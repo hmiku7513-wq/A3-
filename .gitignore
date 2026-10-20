@@ -1,29 +1,6 @@
-# dependencies
 node_modules/
-package-lock.json
-pnpm-lock.yaml
-yarn.lock
-
-# environment / secrets
-.env
-.env.*
-*.local
-
-# logs and temp files
+.edge-*/
 *.log
-npm-debug.log*
-logs/
-tmp/
-temp/
-
-# editor / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# build output (if any)
-dist/
-build/
-coverage/
+landing.png
+screenshots/top-crop.png
+.tools/

@@ -9,6 +9,7 @@
   <title>A3 · 欢乐暗牌</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/happy.css">
+  <link rel="stylesheet" href="/palace.css">
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
@@ -69,6 +70,7 @@
             <span>开个房间</span>
             <span class="btn-arrow" aria-hidden="true">→</span>
           </button>
+          <button id="single-btn" type="button" class="single-btn">单机试玩 · 对阵三个电脑玩家</button>
 
           <div class="or-divider"><span>或者去朋友的牌桌凑一脚</span></div>
 
@@ -136,16 +138,51 @@
           </div>
         </div>
 
-        <div class="table-rule-card">
-          <span class="rule-card-icon" aria-hidden="true">贡</span>
-          <div class="rule-card-copy">
-            <b>供牌规则</b>
-            <p>上局输家向赢家进贡，赢家再还牌。房主可在开局前决定玩不玩。</p>
+        <div class="rule-toggle-grid">
+          <div class="table-rule-card">
+            <span class="rule-card-icon" aria-hidden="true">贡</span>
+            <div class="rule-card-copy">
+              <b>供牌规则</b>
+              <p>上局输家向赢家进贡，赢家再还牌。房主可在开局前决定玩不玩。</p>
+            </div>
+            <button id="tribute-toggle" type="button" class="rule-switch" role="switch" aria-checked="false">
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span id="tribute-toggle-label">关闭</span>
+            </button>
           </div>
-          <button id="tribute-toggle" type="button" class="rule-switch" role="switch" aria-checked="false">
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-            <span id="tribute-toggle-label">关闭</span>
-          </button>
+
+          <div class="table-rule-card">
+            <span class="rule-card-icon" aria-hidden="true">记</span>
+            <div class="rule-card-copy">
+              <b>记牌器</b>
+              <p>实时显示还没打出的牌。开了它，牌桌上谁还藏着大牌一目了然。</p>
+            </div>
+            <button id="counter-toggle" type="button" class="rule-switch" role="switch" aria-checked="false">
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span id="counter-toggle-label">关闭</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="table-time-card">
+          <div class="time-card-head">
+            <span class="rule-card-icon" aria-hidden="true">时</span>
+            <div>
+              <b>操作限时</b>
+              <p>房主可以调整出牌和供还牌的思考时间。</p>
+            </div>
+          </div>
+          <label class="time-row">
+            <span>出牌限时</span>
+            <input id="turn-range" type="range" min="5" max="30" step="1" value="20" disabled>
+            <b id="turn-range-label">20 秒</b>
+          </label>
+          <label class="time-row">
+            <span>供还牌限时</span>
+            <input id="tribute-range" type="range" min="15" max="60" step="1" value="30" disabled>
+            <b id="tribute-range-label">30 秒</b>
+          </label>
+          <p id="settings-lock-note" class="time-lock-note">只有房主可以调整这些设置</p>
         </div>
 
         <div class="room-tips">
@@ -157,6 +194,7 @@
     </section>
 
     <section id="screen-game" class="screen game-screen" aria-label="A3 牌桌">
+      <div id="game-stage" class="game-stage">
       <header class="game-topbar">
         <div class="game-brand">
           <span class="brand-name">A3</span>
@@ -168,7 +206,10 @@
         </div>
         <div class="game-topbar-actions">
           <button id="game-log-btn" type="button" class="icon-only-btn" title="对局记录" aria-label="打开对局记录">≡</button>
+          <button id="game-counter-btn" type="button" class="icon-only-btn" title="记牌器" aria-label="打开记牌器" hidden>记</button>
+          <button id="game-trust-btn" type="button" class="icon-text-btn trust-btn" title="开启托管">托管</button>
           <button id="game-sound-btn" type="button" class="icon-only-btn" title="切换音效" aria-label="切换音效">♪</button>
+          <button id="game-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button id="game-result-btn" type="button" class="icon-text-btn result-top-btn" hidden>看结果</button>
           <button type="button" class="icon-text-btn" data-open-rules>玩法</button>
           <button id="game-leave-btn" type="button" class="icon-only-btn danger-text" title="离开牌桌" aria-label="离开牌桌">×</button>
@@ -176,6 +217,10 @@
       </header>
 
       <div id="landlord-strip" class="landlord-strip" aria-live="polite"></div>
+      <div id="counter-panel" class="counter-panel" hidden title="点击查看详细牌面；计数不含自己的手牌">
+        <span class="counter-title">记牌器</span>
+        <div id="counter-chips" class="counter-chips"></div>
+      </div>
 
       <div class="table-grid">
         <div id="seat-top" class="seat seat-top"></div>
@@ -187,6 +232,7 @@
           <div class="table-watermark" aria-hidden="true">A3</div>
           <div class="center-content">
             <div id="turn-banner" class="turn-banner" aria-live="polite">等待发牌</div>
+            <div id="turn-timer" class="turn-timer" hidden></div>
             <div id="center-empty" class="center-empty">牌局即将开始</div>
             <div id="last-play" class="last-play" hidden>
               <div class="last-play-meta">
@@ -202,6 +248,7 @@
       </div>
 
       <div class="self-zone">
+        <div id="self-trick" class="self-trick" hidden></div>
         <div class="self-toolbar">
           <div id="self-pod" class="self-pod"></div>
           <div class="selection-block">
@@ -209,12 +256,14 @@
             <button id="clear-btn" type="button" class="clear-btn" hidden>清空</button>
           </div>
           <div class="action-buttons">
+            <button id="hint-btn" type="button" class="hint-btn" disabled>提示</button>
             <button id="pass-btn" type="button" class="pass-btn" disabled>过！</button>
             <button id="play-btn" type="button" class="play-btn" disabled>出牌！</button>
           </div>
         </div>
         <div id="hand" class="hand" aria-label="你的手牌"></div>
         <p id="action-hint" class="action-hint" aria-live="polite"></p>
+      </div>
       </div>
     </section>
 
@@ -228,6 +277,7 @@
           <span class="phase-label">进贡还贡时间</span>
         </div>
         <div class="game-topbar-actions">
+          <button id="tribute-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button type="button" class="icon-text-btn" data-open-rules>规则</button>
           <button id="tribute-leave-btn" type="button" class="icon-only-btn danger-text" title="离开牌桌" aria-label="离开牌桌">×</button>
         </div>
@@ -238,6 +288,7 @@
           <p class="eyebrow"><span></span> ROUND TRIBUTE</p>
           <h2>进贡 &amp; 还贡</h2>
           <p id="tribute-instruction" class="tribute-instruction">正在准备供牌…</p>
+          <div id="tribute-timer" class="turn-timer tribute-timer" hidden></div>
           <div id="tribute-previous" class="tribute-previous"></div>
         </div>
 
@@ -282,6 +333,37 @@
 
   <div id="toast-layer" class="toast-layer" aria-live="polite" aria-atomic="false"></div>
   <div id="identity-alert-layer" class="identity-alert-layer" aria-live="assertive"></div>
+  <div id="deal-animation" class="fx-layer deal-animation" hidden aria-hidden="true"></div>
+  <div id="finish-animation" class="fx-layer finish-animation" hidden aria-hidden="true"></div>
+  <div id="role-claim-layer" class="fx-layer role-claim-layer" hidden aria-hidden="true"></div>
+  <div id="tribute-fly-layer" class="fx-layer tribute-fly-layer" hidden aria-hidden="true"></div>
+
+  <div id="orientation-guard" class="orientation-guard">
+    <div class="orientation-card">
+      <span class="orientation-icon">▭</span>
+      <h3>横屏更好玩</h3>
+      <p>把手机横过来，牌面更大、操作更顺手。</p>
+      <button id="orientation-fullscreen-btn" type="button" class="primary-btn">进入全屏</button>
+    </div>
+  </div>
+
+  <div id="counter-modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-modal="counter"></div>
+    <div class="modal-card counter-modal-card" role="dialog" aria-modal="true" aria-labelledby="counter-title">
+      <button type="button" class="modal-close" data-close-modal="counter" aria-label="关闭记牌器">×</button>
+      <div class="modal-heading">
+        <p class="eyebrow"><span></span> CARD COUNTER</p>
+        <h2 id="counter-title">记牌器 · 详细牌面</h2>
+        <p id="counter-summary">按点数从 4 到 3 排列；已打出的牌会变灰，你自己的手牌用金色标出。</p>
+      </div>
+      <div class="counter-legend">
+        <span><i class="legend-dot own"></i> 你的手牌</span>
+        <span><i class="legend-dot unknown"></i> 未打出</span>
+        <span><i class="legend-dot played"></i> 已打出</span>
+      </div>
+      <div id="counter-detail" class="counter-detail"></div>
+    </div>
+  </div>
 
   <div id="rules-modal" class="modal" hidden>
     <div class="modal-backdrop" data-close-modal="rules"></div>
@@ -338,12 +420,15 @@
           <p><b>跟牌：</b>必须压过上家。单牌只能压单牌、对子只能压对子；多张牌按牌型等级和牌型内的规则比较。压不过或不想出，可以选择“不出”。</p>
           <p><b>收轮：</b>其余在场玩家全部不出后，最后出牌者重新领出，可以更换任意合法牌型。</p>
           <p><b>出完：</b>出完手牌的玩家不再参与跟牌，但最后一手仍要被其他人压过。若其余人都不要，则由他的下一位在场玩家领出。</p>
-          <p><b>自动跳过：</b>轮到你且没有任何合法牌可出时，系统会在 3 秒后自动选择不出。</p>
+          <p><b>报单报双：</b>当玩家只剩 1 张或 2 张牌时，牌桌会常驻显示“报单 / 报双”提醒。</p>
+          <p><b>自动跳过：</b>轮到你且没有任何合法牌可出时，系统会在 3 秒后自动选择不出；这不会向其他玩家公开原因。</p>
+          <p><b>操作限时：</b>出牌默认 20 秒，房主可在 5～30 秒之间调整；超时自动不出，若你是本轮先手则自动打出最小合法牌。供还牌默认 30 秒，房主可在 15～60 秒之间调整，超时自动选择。</p>
         </section>
 
         <section class="rule-section">
           <h3><span>05</span> 身份公开</h3>
           <p>任意身份牌被打出的瞬间，全场立即收到提醒。打出者会被公开标记为地主，并展示其打出的身份牌；两张身份牌都被同一人打出时标记为双地主。</p>
+          <p>农民出完牌后，会公开标记为农民。两张身份牌都现身后，地主阵营完全锁定，余下尚未公开的玩家也会被标记为农民。</p>
         </section>
 
         <section class="rule-section">
@@ -371,8 +456,17 @@
           <p class="rule-note">对局在胜负已经确定时结束。双地主有可能在第 1 或第 2 顺位产生时直接锁定结果；无双地主最多进行到第 3 顺位。</p>
         </section>
 
+        <section class="rule-section">
+          <h3><span>08</span> 辅助工具与显示</h3>
+          <p><b>记牌器：</b>房主可在大厅开启。顶部只统计“其他玩家手里还没打出的牌”，会同时扣除已经打出的牌和你自己的手牌。点击顶部记牌器可打开详细牌面：每个点数按 ♦、♣、♥、♠ 堆叠，已打出的牌变灰，自己的手牌标金。</p>
+          <p><b>提示：</b>轮到你时点击“提示”，系统会从你的手牌和上家牌型中找出一手合法牌并自动选中；有多个选择时，连续点击可在不同牌型之间轮换。</p>
+          <p><b>托管：</b>多人对局可点右上角“托管”开启自动出牌，再点“取消”恢复手动；托管状态对所有玩家可见。</p>
+          <p><b>本轮出牌：</b>当前这一轮每位玩家打出的牌会显示在其座位旁；一轮结束、重新领出后清空。</p>
+          <p><b>手机：</b>建议横屏游玩。进入牌桌后可点右上角全屏按钮；竖屏时会显示横屏提示。</p>
+        </section>
+
         <section class="rule-section rule-fineprint">
-          <h3><span>08</span> 比较细则</h3>
+          <h3><span>09</span> 比较细则</h3>
           <ul>
             <li>单牌、对子：数字优先，数字相同比较花色；对子比较其中较大的花色。</li>
             <li>三条、三带二、四带一：只比较核心点数。</li>

@@ -212,6 +212,8 @@ scp -i ~/.ssh/你的密钥 a3-transfer.zip ubuntu@服务器公网IP:/home/ubuntu
 
 也可以使用 WinSCP、FileZilla 等图形工具上传。
 
+> **WinSCP 只能上传文件，不能执行 `deploy-vps.sh`。** 上传完成后仍需通过 SSH 或云厂商网页终端执行命令。零基础用户请直接看 [HANDOFF.md](HANDOFF.md) 第 5 节的「打开终端」三选一。
+
 4. SSH 登录服务器：
 
 ```bash

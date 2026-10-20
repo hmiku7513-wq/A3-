@@ -20,6 +20,12 @@ const OFFLINE_AUTO_PLAY_MS = 10_000;
 const NO_MOVE_AUTO_PASS_MS = 3_000;
 const TRIBUTE_OFFLINE_AUTO_MS = 4_000;
 const TRIBUTE_COMPLETE_DELAY_MS = 1_800;
+const DEFAULT_TURN_SECONDS = 20;
+const MIN_TURN_SECONDS = 5;
+const MAX_TURN_SECONDS = 30;
+const DEFAULT_TRIBUTE_SECONDS = 30;
+const MIN_TRIBUTE_SECONDS = 15;
+const MAX_TRIBUTE_SECONDS = 60;
 
 const rooms = new Map();
 const sockets = new Set();
@@ -116,6 +122,12 @@ function touch(room) {
   room.updatedAt = Date.now();
 }
 
+function clampInteger(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(number)));
+}
+
 function markRoomChanged(room) {
   touch(room);
   if (room.phase === 'playing' && room.game?.phase === 'ended') {
@@ -127,7 +139,7 @@ function markRoomChanged(room) {
 
 function transferHost(room) {
   if (playerById(room, room.hostId)) return;
-  const next = room.players.find((player) => player.connected) || room.players[0];
+  const next = room.players.find((player) => player.connected && !player.isBot) || room.players[0];
   room.hostId = next?.id || null;
 }
 
@@ -148,6 +160,8 @@ function roomSummaryPlayers(room) {
       seat: player.seat,
       ready: Boolean(player.ready),
       connected: Boolean(player.connected),
+      isBot: Boolean(player.isBot),
+      autoPlay: Boolean(player.autoPlay),
       isHost: player.id === room.hostId,
     }));
 }
@@ -168,12 +182,16 @@ function buildLobbyState(room, viewer) {
     room: {
       code: room.code,
       phase: 'lobby',
+      singlePlayer: Boolean(room.singlePlayer),
       hostId: room.hostId,
       yourId: viewer.id,
       maxPlayers: 4,
       minPlayers: 4,
       canStart,
       tributeEnabled: Boolean(room.tributeEnabled),
+      counterEnabled: Boolean(room.counterEnabled),
+      turnSeconds: room.turnSeconds,
+      tributeSeconds: room.tributeSeconds,
       canEditSettings: viewer.id === room.hostId,
       players: roomSummaryPlayers(room),
       serverNow: Date.now(),
@@ -199,13 +217,15 @@ function clearAuto(room) {
 }
 
 /**
- * 无牌可出 3 秒自动跳过；离线玩家额外支持 10 秒后托管出最小合法牌。
+ * 每个出牌回合都有可配置时限；无牌可出仍保留 3 秒静默自动过，
+ * 但这个原因绝不下发给其他玩家。离线玩家使用较短的托管时限。
  */
 function scheduleAuto(room) {
   const game = room.game;
   if (!game || game.phase !== 'playing' || game.turnSeat === null) {
     clearAuto(room);
     room.currentNoLegal = false;
+    room.turnDeadline = null;
     return;
   }
 
@@ -214,14 +234,33 @@ function scheduleAuto(room) {
   const noLegal = !game.hasLegalMoves(seat);
   room.currentNoLegal = noLegal;
 
+  if (room.turnDeadlineVersion !== game.turnVersion) {
+    room.turnDeadlineVersion = game.turnVersion;
+    room.turnDeadline = Date.now() + room.turnSeconds * 1000;
+  }
+
+  const deadlineRemaining = room.turnDeadline
+    ? Math.max(0, room.turnDeadline - Date.now())
+    : room.turnSeconds * 1000;
   let kind = null;
   let delay = 0;
-  if (!player?.connected) {
+  if (player?.isBot) {
+    kind = 'bot';
+    delay = 850;
+  } else if (player?.autoPlay) {
+    kind = 'trusted';
+    delay = 850;
+  } else if (!player?.connected) {
     kind = 'offline';
-    delay = noLegal ? NO_MOVE_AUTO_PASS_MS : OFFLINE_AUTO_PLAY_MS;
+    delay = noLegal
+      ? Math.min(NO_MOVE_AUTO_PASS_MS, deadlineRemaining)
+      : Math.min(OFFLINE_AUTO_PLAY_MS, deadlineRemaining);
   } else if (noLegal) {
     kind = 'no_moves';
     delay = NO_MOVE_AUTO_PASS_MS;
+  } else {
+    kind = 'timeout';
+    delay = deadlineRemaining;
   }
 
   if (
@@ -258,15 +297,35 @@ function scheduleAuto(room) {
     }
 
     try {
-      if (kind === 'offline' && !noLegal) {
+      if (kind === 'bot' || kind === 'trusted') {
+        const move = game.pickAutoMove(seat);
+        const auto = kind === 'trusted';
+        if (move) {
+          game.play(seat, move.cards.map((card) => card.id), { auto });
+        } else {
+          game.pass(seat, { auto });
+        }
+      } else if (kind === 'timeout') {
+        if (game.lastPlay) {
+          game.pass(seat, { auto: true });
+        } else {
+          const move = game.pickAutoMove(seat);
+          if (move) {
+            game.play(seat, move.cards.map((card) => card.id), { auto: true });
+          }
+        }
+      } else if (kind === 'offline' && !noLegal) {
         const move = game.pickAutoMove(seat);
         if (move) {
           game.play(seat, move.cards.map((card) => card.id), { auto: true });
         } else {
           game.pass(seat, { auto: true });
         }
+      } else if (kind === 'no_moves') {
+        // 不把“无牌可出”暴露给其他玩家，按普通“过”广播。
+        game.pass(seat, { auto: false });
       } else {
-        game.pass(seat, { auto: true });
+        game.pass(seat, { auto: !noLegal });
       }
       markRoomChanged(room);
       broadcastGame(room);
@@ -280,8 +339,10 @@ function scheduleAuto(room) {
 function buildGameState(room, viewer) {
   const game = room.game;
   const view = game.getView(viewer.seat);
+  const { remainingCounts: ignoredRemaining, ...publicView } = view;
+  const remainingCounts = game.getRemainingRankCounts(viewer.seat);
   const roomPlayers = new Map(room.players.map((player) => [player.seat, player]));
-  const players = view.players.map((publicPlayer) => {
+  const players = publicView.players.map((publicPlayer) => {
     const member = roomPlayers.get(publicPlayer.seat);
     return {
       ...publicPlayer,
@@ -289,30 +350,38 @@ function buildGameState(room, viewer) {
       connected: Boolean(member?.connected),
       isHost: member?.id === room.hostId,
       isYou: member?.id === viewer.id,
+      isBot: Boolean(member?.isBot),
+      autoPlay: Boolean(member?.autoPlay),
     };
   });
 
   const allConnected = room.players.length === 4 && room.players.every((player) => player.connected);
-  const autoAction = room.auto
-    ? {
-        seat: room.auto.seat,
-        kind: room.auto.kind,
-        at: room.auto.at,
-      }
-    : null;
+  const autoAction =
+    room.auto && room.auto.kind === 'offline'
+      ? {
+          seat: room.auto.seat,
+          kind: room.auto.kind,
+          at: room.auto.at,
+        }
+      : null;
 
   return {
     type: 'state',
     room: {
-      ...view,
+      ...publicView,
       code: room.code,
       phase: room.phase,
+      singlePlayer: Boolean(room.singlePlayer),
       hostId: room.hostId,
       yourId: viewer.id,
       players,
-      noLegalPlay: Boolean(room.currentNoLegal),
       autoAction,
       tributeEnabled: Boolean(room.tributeEnabled),
+      counterEnabled: Boolean(room.counterEnabled),
+      cardCounter: room.counterEnabled ? remainingCounts : null,
+      turnSeconds: room.turnSeconds,
+      tributeSeconds: room.tributeSeconds,
+      turnDeadline: room.turnDeadline,
       round: room.round,
       nextRoundTribute:
         room.phase === 'ended' &&
@@ -338,6 +407,8 @@ function buildTributeState(room, viewer) {
       connected: Boolean(member?.connected),
       isHost: member?.id === room.hostId,
       isYou: member?.id === viewer.id,
+      isBot: Boolean(member?.isBot),
+      autoPlay: Boolean(member?.autoPlay),
     };
   });
 
@@ -346,6 +417,7 @@ function buildTributeState(room, viewer) {
     room: {
       code: room.code,
       phase: 'tribute',
+      singlePlayer: Boolean(room.singlePlayer),
       hostId: room.hostId,
       yourId: viewer.id,
       youSeat: viewer.seat,
@@ -353,6 +425,8 @@ function buildTributeState(room, viewer) {
       tributeEnabled: Boolean(room.tributeEnabled),
       ...view,
       players,
+      tributeSeconds: room.tributeSeconds,
+      actionDeadline: room.tributeDeadline,
       serverNow: Date.now(),
     },
   };
@@ -380,23 +454,58 @@ function clearTributeTimers(room) {
     clearTimeout(room.tributeStartTimer);
     room.tributeStartTimer = null;
   }
+  room.tributeDeadline = null;
+  room.tributeDeadlineKey = null;
 }
 
 function scheduleTributeAuto(room) {
+  const tribute = room.tribute;
+  if (!tribute || tribute.completed || tribute.currentSeat === null) {
+    if (room.tributeAutoTimer) {
+      clearTimeout(room.tributeAutoTimer);
+      room.tributeAutoTimer = null;
+    }
+    room.tributeDeadline = null;
+    room.tributeDeadlineKey = null;
+    return;
+  }
+
+  const stage = tribute.stage;
+  const seat = tribute.currentSeat;
+  const player = room.players.find((entry) => entry.seat === seat);
+  const key = [
+    stage,
+    seat,
+    tribute.pool.length,
+    tribute.returnPool.length,
+    tribute.returnCounts.get(seat) || 0,
+    player?.connected ? 'online' : 'offline',
+    player?.isBot ? 'bot' : '',
+    player?.autoPlay ? 'trusted' : '',
+  ].join(':');
+  if (room.tributeDeadlineKey === key && room.tributeAutoTimer) return;
+
   if (room.tributeAutoTimer) {
     clearTimeout(room.tributeAutoTimer);
     room.tributeAutoTimer = null;
   }
-  const tribute = room.tribute;
-  if (!tribute || tribute.completed || tribute.currentSeat === null) return;
-  const player = room.players.find((entry) => entry.seat === tribute.currentSeat);
-  if (!player || player.connected) return;
 
-  const stage = tribute.stage;
-  const seat = tribute.currentSeat;
+  const limit = player?.isBot || player?.autoPlay
+    ? 850
+    : player?.connected
+      ? room.tributeSeconds * 1000
+      : Math.min(TRIBUTE_OFFLINE_AUTO_MS, room.tributeSeconds * 1000);
+  room.tributeDeadlineKey = key;
+  room.tributeDeadline = Date.now() + limit;
+
   room.tributeAutoTimer = setTimeout(() => {
     room.tributeAutoTimer = null;
-    if (room.tribute !== tribute || tribute.completed || tribute.currentSeat !== seat) {
+    if (
+      room.tribute !== tribute ||
+      tribute.completed ||
+      tribute.currentSeat !== seat ||
+      tribute.stage !== stage
+    ) {
       return;
     }
     try {
@@ -420,7 +529,7 @@ function scheduleTributeAuto(room) {
       log('auto tribute action failed:', error.message);
       clearTributeTimers(room);
     }
-  }, TRIBUTE_OFFLINE_AUTO_MS);
+  }, limit);
 }
 
 function afterTributeAction(room) {
@@ -449,6 +558,10 @@ function scheduleGameAfterTribute(room) {
     room.tribute = null;
     room.phase = 'playing';
     room.currentNoLegal = false;
+    room.turnDeadline = null;
+    room.turnDeadlineVersion = 0;
+    room.tributeDeadline = null;
+    room.tributeDeadlineKey = null;
     touch(room);
     log(`room ${room.code}: tribute finished, game ${room.round} started`);
     broadcastGame(room);
@@ -519,6 +632,8 @@ function startGame(room, starter) {
     room.phase = 'tribute';
     room.game = null;
     room.currentNoLegal = false;
+    room.turnDeadline = null;
+    room.turnDeadlineVersion = 0;
     touch(room);
     log(`room ${room.code}: tribute for round ${room.round} started`);
     broadcastTribute(room);
@@ -538,6 +653,10 @@ function startGame(room, starter) {
   room.phase = 'playing';
   room.tribute = null;
   room.currentNoLegal = false;
+  room.turnDeadline = null;
+  room.turnDeadlineVersion = 0;
+  room.tributeDeadline = null;
+  room.tributeDeadlineKey = null;
   touch(room);
   log(`room ${room.code}: game ${room.round} started`);
   broadcastGame(room);
@@ -567,6 +686,8 @@ function removePlayer(room, player) {
     clearAuto(room);
     clearTributeTimers(room);
     room.currentNoLegal = false;
+    room.turnDeadline = null;
+    room.turnDeadlineVersion = 0;
   }
 
   touch(room);
@@ -643,6 +764,8 @@ function handleCreate(ws, message) {
     ready: true,
     connected: true,
     ws,
+    isBot: false,
+    autoPlay: false,
     disconnectTimer: null,
     lastSeen: Date.now(),
   };
@@ -651,15 +774,23 @@ function handleCreate(ws, message) {
     hostId: id,
     players: [player],
     phase: 'lobby',
+    singlePlayer: false,
     game: null,
     tribute: null,
     tributeEnabled: false,
+    counterEnabled: false,
+    turnSeconds: DEFAULT_TURN_SECONDS,
+    tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
     lastResult: null,
     lastResultRound: null,
     auto: null,
     autoTimer: null,
+    turnDeadline: null,
+    turnDeadlineVersion: 0,
     tributeAutoTimer: null,
     tributeStartTimer: null,
+    tributeDeadline: null,
+    tributeDeadlineKey: null,
     currentNoLegal: false,
     round: 0,
     createdAt: Date.now(),
@@ -670,6 +801,81 @@ function handleCreate(ws, message) {
   send(ws, { type: 'joined', roomCode: code, playerId: id, token });
   send(ws, buildLobbyState(room, player));
   log(`room ${code}: created by ${name}`);
+}
+
+function handleSingle(ws, message) {
+  if (ws.session) {
+    sendError(ws, '你已经在牌桌上啦！', 'ALREADY_IN_ROOM');
+    return;
+  }
+  const name = sanitizeName(message.name);
+  const code = makeRoomCode();
+  const id = randomUUID();
+  const token = makeToken();
+  const host = {
+    id,
+    token,
+    name,
+    seat: 0,
+    ready: true,
+    connected: true,
+    ws,
+    isBot: false,
+    autoPlay: false,
+    disconnectTimer: null,
+    lastSeen: Date.now(),
+  };
+  const botNames = ['小乐', '阿福', '圆圆'];
+  const bots = botNames.map((botName, index) => ({
+    id: randomUUID(),
+    token: null,
+    name: botName,
+    seat: index + 1,
+    ready: true,
+    connected: true,
+    ws: null,
+    isBot: true,
+    autoPlay: true,
+    disconnectTimer: null,
+    lastSeen: Date.now(),
+  }));
+  const room = {
+    code,
+    hostId: id,
+    players: [host, ...bots],
+    phase: 'lobby',
+    singlePlayer: true,
+    game: null,
+    tribute: null,
+    tributeEnabled: false,
+    counterEnabled: true,
+    turnSeconds: DEFAULT_TURN_SECONDS,
+    tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
+    lastResult: null,
+    lastResultRound: null,
+    auto: null,
+    autoTimer: null,
+    turnDeadline: null,
+    turnDeadlineVersion: 0,
+    tributeAutoTimer: null,
+    tributeStartTimer: null,
+    tributeDeadline: null,
+    tributeDeadlineKey: null,
+    currentNoLegal: false,
+    round: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  rooms.set(code, room);
+  ws.session = { roomCode: code, playerId: id };
+  send(ws, { type: 'joined', roomCode: code, playerId: id, token, singlePlayer: true });
+  try {
+    startGame(room, host);
+  } catch (error) {
+    log(`room ${code}: single start failed: ${error.message}`);
+    sendError(ws, error.message || '单机开局失败。', error.code || 'SINGLE_START_FAILED');
+  }
+  log(`room ${code}: single-player game created by ${name}`);
 }
 
 function handleJoin(ws, message) {
@@ -710,6 +916,10 @@ function handleJoin(ws, message) {
     }
   }
 
+  if (room.singlePlayer) {
+    sendError(ws, '这是单机牌桌，不能加入哦～', 'SINGLE_PLAYER_ONLY');
+    return;
+  }
   if (room.phase !== 'lobby') {
     sendError(ws, '这桌已经开打啦，等下一局吧！', 'GAME_IN_PROGRESS');
     return;
@@ -773,10 +983,52 @@ function handleSettings(ws, message) {
     sendError(ws, '只有房主能改规则哦！', 'NOT_HOST');
     return;
   }
-  room.tributeEnabled = Boolean(message.tributeEnabled);
+  if (Object.prototype.hasOwnProperty.call(message, 'tributeEnabled')) {
+    room.tributeEnabled = Boolean(message.tributeEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'counterEnabled')) {
+    room.counterEnabled = Boolean(message.counterEnabled);
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'turnSeconds')) {
+    room.turnSeconds = clampInteger(
+      message.turnSeconds,
+      MIN_TURN_SECONDS,
+      MAX_TURN_SECONDS,
+      DEFAULT_TURN_SECONDS,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'tributeSeconds')) {
+    room.tributeSeconds = clampInteger(
+      message.tributeSeconds,
+      MIN_TRIBUTE_SECONDS,
+      MAX_TRIBUTE_SECONDS,
+      DEFAULT_TRIBUTE_SECONDS,
+    );
+  }
   touch(room);
   broadcastLobby(room);
-  log(`room ${room.code}: tribute ${room.tributeEnabled ? 'enabled' : 'disabled'}`);
+  log(
+    `room ${room.code}: settings tribute=${room.tributeEnabled} counter=${room.counterEnabled} ` +
+    `turn=${room.turnSeconds}s tributeTime=${room.tributeSeconds}s`,
+  );
+}
+
+function handleTrust(ws, message) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  if (player.isBot) return;
+  if (room.phase !== 'playing' && room.phase !== 'tribute') {
+    sendError(ws, '开局后才能托管哦～', 'BAD_PHASE');
+    return;
+  }
+  player.autoPlay = Object.prototype.hasOwnProperty.call(message, 'enabled')
+    ? Boolean(message.enabled)
+    : !player.autoPlay;
+  touch(room);
+  if (room.phase === 'tribute') broadcastTribute(room);
+  else broadcastGame(room);
+  log(`room ${room.code}: ${player.name} autoPlay=${player.autoPlay}`);
 }
 
 function handleStart(ws) {
@@ -786,8 +1038,7 @@ function handleStart(ws) {
   try {
     startGame(room, player);
   } catch (error) {
-    handleActionError(ws, error);
-  }
+    handleActionError(ws, error);  }
 }
 
 function handlePlay(ws, message) {
@@ -883,6 +1134,17 @@ function handleLeave(ws) {
   const { room, player } = context;
   ws.session = null;
 
+  if (room.singlePlayer) {
+    send(ws, { type: 'left' });
+    try {
+      ws.close(4002, 'left single game');
+    } catch {
+      // ignore
+    }
+    deleteRoom(room);
+    return;
+  }
+
   if (
     (room.phase === 'playing' && room.game?.phase === 'playing') ||
     room.phase === 'tribute'
@@ -961,6 +1223,11 @@ function handleClose(ws) {
   const player = playerById(room, ws.session.playerId);
   if (!player || player.ws !== ws) return;
 
+  if (room.singlePlayer && player.id === room.hostId) {
+    deleteRoom(room);
+    return;
+  }
+
   player.ws = null;
   player.connected = false;
   player.lastSeen = Date.now();
@@ -999,6 +1266,9 @@ function handleMessage(ws, text) {
     case 'create':
       handleCreate(ws, message);
       break;
+    case 'single':
+      handleSingle(ws, message);
+      break;
     case 'join':
       handleJoin(ws, message);
       break;
@@ -1010,6 +1280,9 @@ function handleMessage(ws, text) {
       break;
     case 'start':
       handleStart(ws);
+      break;
+    case 'trust':
+      handleTrust(ws, message);
       break;
     case 'play':
       handlePlay(ws, message);
