@@ -192,6 +192,44 @@ async function main() {
     }
     console.log('four browser tabs ready');
 
+    // Social: upload a real image file, expect canvas compression + preview + localStorage.
+    await pages[0].cdp.evaluate(`(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1400;
+      canvas.height = 1000;
+      const ctx = canvas.getContext('2d');
+      const gradient = ctx.createLinearGradient(0, 0, 1400, 1000);
+      gradient.addColorStop(0, '#1f6f43');
+      gradient.addColorStop(0.5, '#ffd45e');
+      gradient.addColorStop(1, '#0b3b63');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 1400, 1000);
+      for (let i = 0; i < 180; i += 1) {
+        ctx.fillStyle = 'hsla(' + ((i * 47) % 360) + ', 70%, 55%, 0.55)';
+        ctx.beginPath();
+        ctx.arc((i * 137) % 1400, (i * 83) % 1000, 18 + (i % 55), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.96);
+      const byteString = atob(dataUrl.split(',')[1]);
+      const bytes = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i += 1) bytes[i] = byteString.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'image/jpeg' });
+      const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const input = document.getElementById('avatar-input');
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await pages[0].cdp.waitFor(
+      "document.getElementById('avatar-preview').classList.contains('has-image') && !!localStorage.getItem('a3.avatar') && localStorage.getItem('a3.avatar').length <= 140000",
+      8000,
+      'avatar compressed and previewed',
+    );
+    console.log('avatar: compressed, previewed and stored');
+
     // Tutorial: a playable simulated match. Basic turns auto-select the target cards,
     // the player confirms with the play button; the free phase adds timer/hint/skip.
     await pages[0].cdp.evaluate("document.getElementById('home-tutorial-btn').click()");
@@ -312,6 +350,11 @@ async function main() {
       8000,
       'room created',
     );
+    await pages[0].cdp.waitFor(
+      "(() => { const node = document.querySelector('#room-slots .room-slot.you .slot-avatar'); return !!node && node.hasAttribute('data-avatar-player') && getComputedStyle(node).backgroundImage.includes('data:image'); })()",
+      6000,
+      'room avatar rendered',
+    );
     const code = await pages[0].cdp.evaluate("document.getElementById('room-code-display').textContent.trim()");
     if (!/^[A-Z0-9]{4}$/.test(code)) throw new Error(`bad room code ${code}`);
     console.log('room:', code);
@@ -397,6 +440,93 @@ async function main() {
       'deal animation complete',
     );
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-game-start.png'));
+    await pages[0].cdp.evaluate("document.getElementById('game-log-btn').click()");
+    await pages[0].cdp.waitFor("!document.getElementById('log-drawer').hidden", 3000, 'log drawer');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-log.png'));
+    await pages[0].cdp.evaluate("document.getElementById('log-close-btn').click()");
+    await pages[0].cdp.waitFor("document.getElementById('log-drawer').hidden", 2000, 'log close');
+    await pages[0].cdp.waitFor(
+      "(() => { const node = document.querySelector('#self-pod .self-avatar'); return !!node && node.hasAttribute('data-avatar-player') && getComputedStyle(node).backgroundImage.includes('data:image'); })()",
+      6000,
+      'game avatar rendered',
+    );
+
+    // Emoji: dynamic picker → send → own bubble → 3s lock/unlock.
+    await pages[0].cdp.evaluate("document.getElementById('emote-btn').click()");
+    await pages[0].cdp.waitFor(
+      "!document.getElementById('emote-menu').hidden && document.querySelectorAll('#emote-menu .emoji-item[data-emoji]').length >= 20",
+      3000,
+      'emoji picker with 20+ items',
+    );
+    const emojiValue = await pages[0].cdp.evaluate(
+      "document.querySelector('#emote-menu .emoji-item[data-emoji]').dataset.emoji",
+    );
+    await pages[0].cdp.evaluate(
+      "document.querySelector('#emote-menu .emoji-item[data-emoji]').click()",
+    );
+    await pages[0].cdp.waitFor(
+      "document.querySelector('#emote-layer .emote-bubble')?.textContent === " + JSON.stringify(emojiValue),
+      5000,
+      'own emoji bubble',
+    );
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-emoji-bubble.png'));
+    const lockedMenuHidden = await pages[0].cdp.evaluate(`(() => {
+      document.getElementById('emote-btn').click();
+      return document.getElementById('emote-menu').hidden;
+    })()`);
+    if (!lockedMenuHidden) throw new Error('emoji send lock should block reopening picker');
+    await pages[0].cdp.waitFor(
+      "document.querySelectorAll('#emote-layer .emote-bubble').length === 0",
+      7000,
+      'emoji bubble removed after 3s',
+    );
+    await pages[0].cdp.waitFor(
+      "document.getElementById('emote-btn').title === '表情互动'",
+      6000,
+      'emoji unlocked after 3s',
+    );
+    const unlockedPickerOpen = await pages[0].cdp.evaluate(`(() => {
+      document.getElementById('emote-btn').click();
+      const open = !document.getElementById('emote-menu').hidden;
+      if (open) document.getElementById('emote-btn').click();
+      return open;
+    })()`);
+    if (!unlockedPickerOpen) throw new Error('emoji picker should open again after 3s');
+    await sleep(600);
+    console.log('emoji: picker, bubble, 3s lock/unlock ok');
+
+    // Gift: another player's basket → flower → fly → bloom → 3s cleanup.
+    await pages[0].cdp.evaluate("document.querySelector('.game-stage .player-pod .gift-basket-btn').click()");
+    await pages[0].cdp.waitFor("!document.getElementById('gift-menu').hidden", 3000, 'gift menu open');
+    const giftTargetSeat = await pages[0].cdp.evaluate("document.getElementById('gift-menu').dataset.seat");
+    if (!/^[0-9]$/.test(String(giftTargetSeat || ''))) throw new Error(`bad gift target seat: ${giftTargetSeat}`);
+    await pages[0].cdp.evaluate("document.querySelector('#gift-menu [data-gift=\"flower\"]').click()");
+    await pages[0].cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly').length > 0", 3000, 'gift fly');
+    await pages[0].cdp.waitFor("document.querySelectorAll('#emote-layer .gift-bloom').length > 0", 4000, 'gift bloom');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-gift-bloom.png'));
+    await pages[0].cdp.waitFor(
+      "document.querySelectorAll('#emote-layer .gift-fly, #emote-layer .gift-bloom').length === 0",
+      7000,
+      'gift animation finished (3s)',
+    );
+    console.log('gift: basket → fly → bloom → cleanup ok');
+
+    // Scoring: single global round score in the topbar + personal cumulative scores on pods.
+    const scoreUi = await pages[0].cdp.evaluate(`(() => ({
+      label: document.getElementById('shared-score').querySelector('.shared-score-label')?.textContent || '',
+      value: document.getElementById('shared-score').querySelector('.shared-score-value')?.textContent || '',
+      personal: document.querySelector('#self-pod .personal-score')?.textContent || '',
+      podScores: document.querySelectorAll('.player-pod .personal-score').length,
+      legacyLabel: document.getElementById('shared-score').textContent.includes('全局积分'),
+    }))()`);
+    if (scoreUi.label !== '本局积分') throw new Error(`shared score label should be 本局积分, got ${scoreUi.label}`);
+    if (!/^[0-9]+$/.test(scoreUi.value) || Number(scoreUi.value) < 2) {
+      throw new Error(`bad roundScore in topbar: ${scoreUi.value}`);
+    }
+    if (!/[0-9]/.test(scoreUi.personal)) throw new Error('self personal score missing');
+    if (scoreUi.podScores < 3) throw new Error(`expected 3 pod personal scores, got ${scoreUi.podScores}`);
+    if (scoreUi.legacyLabel) throw new Error('legacy 全局积分 label still present');
+    console.log('score: round', scoreUi.value, '| self personal', scoreUi.personal.trim());
 
     // Mobile layout check on a guest tab.
     await pages[1].cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -446,7 +576,7 @@ async function main() {
 
       const states = await Promise.all(pages.map((page) => page.cdp.evaluate(`(() => ({
         inGame: document.getElementById('screen-game').classList.contains('is-active'),
-        ended: !document.getElementById('game-result-btn').hidden,
+        ended: !document.getElementById('result-modal').hidden,
         result: !document.getElementById('result-modal').hidden,
         yours: document.querySelector('.turn-banner')?.classList.contains('yours') || false,
         hand: [...document.querySelectorAll('#hand [data-card-id]')].map((node) => node.dataset.cardId),
@@ -530,10 +660,9 @@ async function main() {
       }
 
       await page.cdp.waitFor(`(() => {
-        const ended = !document.getElementById('game-result-btn').hidden;
-        const yours = document.querySelector('.turn-banner')?.classList.contains('yours') || false;
         const result = !document.getElementById('result-modal').hidden;
-        return ended || result || !yours;
+        const yours = document.querySelector('.turn-banner')?.classList.contains('yours') || false;
+        return result || !yours;
       })()`, 8000, `action by seat ${activeIndex}`).catch(async (error) => {
         const info = await page.cdp.evaluate(`(() => ({
           selection: document.getElementById('selection-info').textContent,
@@ -570,8 +699,11 @@ async function main() {
     await sleep(450);
     const resultOpen = await pages[0].cdp.evaluate("!document.getElementById('result-modal').hidden");
     if (!resultOpen) {
-      await pages[0].cdp.evaluate("document.getElementById('game-result-btn').click()");
-      await sleep(600);
+      await pages[0].cdp.waitFor(
+        "!document.getElementById('result-modal').hidden",
+        8000,
+        'result modal auto-open',
+      );
     }
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-result.png'));
     await pages[0].cdp.evaluate("document.getElementById('result-borrow-toggle').click()");
@@ -592,12 +724,60 @@ async function main() {
       reason: document.getElementById('result-reason').textContent,
       rankings: [...document.querySelectorAll('#result-ranking li')].map((node) => node.innerText),
       handCards: document.querySelectorAll('#hand [data-card-id]').length,
+      roundLabel: document.getElementById('shared-score').querySelector('.shared-score-label')?.textContent || '',
+      headCols: [...document.querySelectorAll('#result-teams .score-board-head span')].map((node) => node.textContent),
+      deltas: [...document.querySelectorAll('#result-teams .score-delta')].map((node) => node.textContent),
+      totals: [...document.querySelectorAll('#result-teams .score-total')].map((node) => node.textContent),
+      resultRuleRows: document.querySelectorAll('#result-modal .result-rule-row').length,
+      scoringToggleVisible: (() => { const node = document.getElementById('result-scoring-toggle'); return Boolean(node && node.offsetParent !== null); })(),
+      resultSharedHidden: (() => { const node = document.getElementById('result-shared-score'); return !node || node.offsetParent === null || node.hidden; })(),
+      resultSharedEmpty: (() => { const node = document.getElementById('result-shared-score'); return !node || node.innerHTML.trim() === ''; })(),
     }))()`);
+
+    if (finalState.roundLabel !== '本局积分') {
+      throw new Error(`topbar label should stay 本局积分, got ${finalState.roundLabel}`);
+    }
+    if (finalState.headCols.length !== 5) {
+      throw new Error(`result table should have 5 columns, got ${finalState.headCols.join('|')}`);
+    }
+    if (finalState.deltas.length !== 4 || finalState.totals.length !== 4) {
+      throw new Error(`result should show 4 deltas and 4 totals, got ${finalState.deltas.length}/${finalState.totals.length}`);
+    }
+    const deltaSum = finalState.deltas.reduce((sum, text) => sum + Number(text || 0), 0);
+    if (deltaSum !== 0) throw new Error(`zero-sum expected, got ${deltaSum}`);
+    if (finalState.totals.some((text) => !/^-?[0-9]+$/.test(text.trim()))) {
+      throw new Error(`bad personal total: ${finalState.totals.join('|')}`);
+    }
+    if (finalState.resultRuleRows !== 2) {
+      throw new Error(`result rules should only show tribute/borrow, got ${finalState.resultRuleRows} rows`);
+    }
+    if (finalState.scoringToggleVisible) throw new Error('result scoring toggle should not be visible');
+    if (!finalState.resultSharedHidden) throw new Error('result-shared-score should stay hidden');
+    if (!finalState.resultSharedEmpty) throw new Error('result-shared-score should not be rendered by app');
+    console.log('result score: deltas', finalState.deltas.join(','), '| totals', finalState.totals.join(','));
+
+    await pages[0].cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 844,
+      height: 390,
+      deviceScaleFactor: 1,
+      mobile: true,
+      screenOrientation: { type: 'landscapePrimary', angle: 90 },
+    });
+    await sleep(250);
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-result-landscape.png'));
+    await pages[0].cdp.send('Emulation.clearDeviceMetricsOverride');
 
     await pages[2].cdp.send('Page.bringToFront');
     await sleep(400);
-    await pages[2].cdp.evaluate("document.querySelector('#result-modal .modal-close')?.click(); true");
-    await sleep(350);
+    // 结算页不再允许关闭:Esc 不应关掉结果弹层(右上角按钮是退出房间)。
+    await pages[2].cdp.evaluate(
+      "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true",
+    );
+    await sleep(200);
+    const resultStillOpen = await pages[2].cdp.evaluate(
+      "!document.getElementById('result-modal').hidden",
+    );
+    if (!resultStillOpen) throw new Error('result modal should not close with Escape');
     await pages[2].cdp.evaluate("document.querySelector('[data-open-rules]').click(); true");
     await sleep(700);
     await pages[2].cdp.screenshot(path.join(OUT_DIR, 'ui-rules.png'));
@@ -638,23 +818,60 @@ async function main() {
       console.log('single browser errors', singlePage.cdp.errors.join(' | '));
       throw error;
     });
-    const singleInfo = await singlePage.cdp.evaluate(`(() => ({
-      phase: document.getElementById('game-phase-label').textContent,
-      trustHidden: document.getElementById('game-trust-btn').hidden,
-      counter: !document.getElementById('counter-panel').hidden,
-      singleButtons: !document.getElementById('single-counter-btn').hidden,
-    }))()`);
-    if (!singleInfo.singleButtons) throw new Error('single-player settings buttons missing');
-    if (!singleInfo.trustHidden) throw new Error('trust button should be hidden in single-player');
-    if (!singleInfo.counter) throw new Error('single-player counter should be enabled');
     await singlePage.cdp.waitFor(
       "!document.body.classList.contains('deal-running')",
       6000,
       'single deal complete',
     );
     await sleep(400);
+    const singleInfo = await singlePage.cdp.evaluate(`(() => ({
+      phase: document.getElementById('game-phase-label').textContent,
+      trustHidden: document.getElementById('game-trust-btn').hidden,
+      trustDisabled: document.getElementById('game-trust-btn').disabled,
+      counter: !document.getElementById('counter-panel').hidden,
+      singleButtons: !document.getElementById('single-counter-btn').hidden,
+      sharedScoreVisible: !document.getElementById('shared-score').hidden,
+      selfPersonal: document.querySelector('#self-pod .personal-score')?.textContent || '',
+      botPersonal: document.querySelectorAll('.player-pod .personal-score').length,
+      giftBaskets: document.querySelectorAll('.player-pod .gift-basket-btn').length,
+    }))()`);
+    if (!singleInfo.singleButtons) throw new Error('single-player settings buttons missing');
+    if (singleInfo.trustHidden) throw new Error('trust button should be visible in single-player');
+    if (singleInfo.trustDisabled) throw new Error('trust button should be enabled in single-player');
+    if (!singleInfo.counter) throw new Error('single-player counter should be enabled');
+    if (!singleInfo.sharedScoreVisible) throw new Error('single-player shared score should be visible');
+    if (!/[0-9]/.test(singleInfo.selfPersonal)) throw new Error('single-player self personal score missing');
+    if (singleInfo.botPersonal !== 3) throw new Error(`single-player should show 3 bot personal scores, got ${singleInfo.botPersonal}`);
+    if (singleInfo.giftBaskets !== 3) throw new Error(`single-player should show 3 bot gift baskets, got ${singleInfo.giftBaskets}`);
     await singlePage.cdp.screenshot(path.join(OUT_DIR, 'ui-single.png'));
-    console.log('single-player: 3 bots ready');
+
+    // Single-player trust: the button must send trust and reflect autoPlay from server state.
+    await singlePage.cdp.evaluate("document.getElementById('game-trust-btn').click()");
+    await singlePage.cdp.waitFor(
+      "document.getElementById('game-trust-btn').textContent.trim() === '取消'",
+      6000,
+      'single-player trust enabled',
+    );
+    await singlePage.cdp.evaluate("document.getElementById('game-trust-btn').click()");
+    await singlePage.cdp.waitFor(
+      "document.getElementById('game-trust-btn').textContent.trim() === '托管'",
+      6000,
+      'single-player trust cancelled',
+    );
+    console.log('single-player: trust toggled on/off');
+
+    // Single-player gift: bot basket → egg → fly → smash.
+    await singlePage.cdp.evaluate("document.querySelector('.player-pod .gift-basket-btn').click()");
+    await singlePage.cdp.waitFor("!document.getElementById('gift-menu').hidden", 3000, 'single gift menu');
+    await singlePage.cdp.evaluate("document.querySelector('#gift-menu [data-gift=\"egg\"]').click()");
+    await singlePage.cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly').length > 0", 3000, 'single gift fly');
+    await singlePage.cdp.waitFor("document.querySelectorAll('#emote-layer .gift-smash').length > 0", 4000, 'single egg smash');
+    await singlePage.cdp.waitFor(
+      "document.querySelectorAll('#emote-layer .gift-fly, #emote-layer .gift-smash').length === 0",
+      7000,
+      'single gift cleanup',
+    );
+    console.log('single-player: 3 bots ready; gift basket egg/smash ok');
 
     const browserErrors = pages.flatMap((page) => page.cdp.errors);
     if (browserErrors.length) {

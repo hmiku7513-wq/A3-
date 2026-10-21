@@ -1,0 +1,13 @@
+{
+  "name": "A3",
+  "short_name": "A3",
+  "description": "四人在线欢乐牌局，隐藏身份、进贡还贡，全程横屏开打。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#071a30",
+  "theme_color": "#f05a2e",
+  "lang": "zh-CN",
+  "icons": []
+}

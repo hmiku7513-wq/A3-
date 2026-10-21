@@ -38,6 +38,23 @@
   const SESSION_KEY = 'a3.session.v1';
   const NAME_KEY = 'a3.name';
   const SOUND_KEY = 'a3.sound';
+  const AVATAR_KEY = 'a3.avatar';
+  // 客户端压缩目标:文件 ≤2MB,输出 dataUrl 估算 ≤100KB(服务端上限 140KB)。
+  const AVATAR_MAX_INPUT_BYTES = 2 * 1024 * 1024;
+  const AVATAR_TARGET_BYTES = 100 * 1024;
+  const AVATAR_MAX_DATA_URL_LENGTH = 140 * 1024;
+  const AVATAR_OUTPUT_SIZES = [512, 384, 256, 192, 128];
+  const AVATAR_QUALITIES = [0.9, 0.8, 0.7, 0.6, 0.5];
+  // 表情互动:通用 emoji 面板 + 菜篮子定向送花/砸蛋;发送后 3s 动画锁,与服务端冷却一致。
+  const EMOTE_LOCK_MS = 3000;
+  const EMOJI_LIST = [
+    '😀', '😄', '😁', '😂', '🤣', '😊',
+    '😍', '😘', '😎', '🤔', '😅', '😭',
+    '😡', '👍', '👎', '👏', '🙏', '💪',
+    '🎉', '❤️', '🔥', '🍀', '🌹', '🥚',
+  ];
+  const GIFT_ICONS = { flower: '🌹', egg: '🥚' };
+  const GIFT_LANDING_ICONS = { flower: '💐', egg: '💥' };
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) =>
@@ -80,6 +97,13 @@
     room: null,
     playerId: null,
     name: localStorage.getItem(NAME_KEY) || savedSession?.name || '',
+    avatar: localStorage.getItem(AVATAR_KEY) || '',
+    avatarCache: new Map(),
+    avatarStyleSignature: '',
+    lastSentAvatar: null,
+    emoteLockUntil: 0,
+    emoteLockTimer: null,
+    giftTargetSeat: null,
     selected: new Set(),
     handSignature: '',
     pending: false,
@@ -88,6 +112,8 @@
     lastEventId: 0,
     prevTurnSeat: null,
     resultKey: null,
+    resultPendingKey: null,
+    resultPollTimer: null,
     serverOffset: 0,
     sound: localStorage.getItem(SOUND_KEY) !== 'off',
     audioCtx: null,
@@ -153,7 +179,7 @@
       'screen-landing', 'screen-room', 'screen-game',
       'game-stage',
       'connection-text', 'landing-error',
-      'name-input',
+      'name-input', 'avatar-preview', 'avatar-upload-btn', 'avatar-input',
       'home-create-btn', 'home-join-btn', 'home-join-modal', 'home-join-code',
       'home-join-submit', 'home-join-close', 'home-join-error',
       'home-single-btn', 'home-tutorial-btn',
@@ -170,9 +196,10 @@
       'tribute-return-note', 'tribute-selection-info', 'tribute-clear-btn',
       'tribute-confirm-btn', 'tribute-hand', 'tribute-waiting',
       'tribute-events',
-      'game-room-code', 'game-phase-label', 'game-sound-dot', 'game-sound-btn', 'score-strip',
+      'game-room-code', 'game-phase-label', 'game-sound-dot', 'game-sound-btn', 'shared-score',
       'game-log-btn', 'game-counter-btn', 'game-trust-btn', 'single-counter-btn',
       'single-tribute-btn', 'single-borrow-btn', 'game-fullscreen-btn', 'game-result-btn', 'game-leave-btn',
+      'emote-btn', 'emote-menu', 'emote-layer', 'gift-menu',
       'landlord-strip', 'counter-panel', 'counter-chips', 'counter-collapse-btn',
       'seat-top', 'seat-left', 'seat-right', 'turn-banner', 'turn-timer',
       'center-empty', 'last-play', 'last-play-owner', 'last-play-type',
@@ -199,7 +226,6 @@
       'result-title', 'result-reason', 'result-teams', 'result-ranking',
       'result-tribute-toggle', 'result-tribute-label',
       'result-borrow-toggle', 'result-borrow-label',
-      'result-scoring-toggle', 'result-scoring-label',
       'restart-btn', 'restart-hint', 'result-leave-btn',
       'log-drawer', 'log-close-btn', 'log-list',
       'reconnect-overlay', 'reconnect-text', 'reconnect-now-btn',
@@ -244,6 +270,14 @@
       if (event.key !== 'Enter') return;
       event.preventDefault();
       joinRoom();
+    });
+    on('avatar-upload-btn', 'click', openAvatarPicker);
+    on('avatar-preview', 'click', openAvatarPicker);
+    on('avatar-input', 'change', () => {
+      const input = el['avatar-input'];
+      const file = input?.files && input.files[0];
+      if (input) input.value = '';
+      handleAvatarFile(file);
     });
   }
 
@@ -301,7 +335,10 @@
     el['hint-btn'].addEventListener('click', useHint);
     el['game-fullscreen-btn'].addEventListener('click', toggleFullscreen);
     el['tribute-fullscreen-btn'].addEventListener('click', toggleFullscreen);
-    el['orientation-fullscreen-btn'].addEventListener('click', toggleFullscreen);
+    el['orientation-fullscreen-btn'].addEventListener('click', () => {
+      // guard 里的“进入全屏”属于用户手势，直接尝试全屏 + 锁横屏。
+      enterFullscreen();
+    });
     el['copy-fullscreen-link'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
     el['continue-fullscreen'].addEventListener('click', continueFullscreen);
     el['close-fullscreen-tip'].addEventListener('click', closeFullscreenTip);
@@ -405,20 +442,46 @@
     });
     el['log-close-btn'].addEventListener('click', closeLog);
     el['game-sound-btn'].addEventListener('click', toggleSound);
-    el['game-result-btn'].addEventListener('click', () => {
-      if (app.room?.result) openResult(true);
+    on('emote-btn', 'click', (event) => {
+      event.stopPropagation();
+      toggleEmoteMenu();
+    });
+    on('emote-menu', 'click', (event) => {
+      const item = event.target.closest('[data-emoji]');
+      if (!item) return;
+      sendEmoji(item.dataset.emoji);
+    });
+    on('gift-menu', 'click', (event) => {
+      const item = event.target.closest('[data-gift]');
+      if (!item) return;
+      sendGift(item.dataset.gift);
+    });
+    el['game-stage'].addEventListener('click', (event) => {
+      const basket = event.target.closest('.gift-basket-btn');
+      if (!basket) return;
+      event.stopPropagation();
+      openGiftMenu(Number(basket.dataset.seat), basket);
+    });
+    el['room-slots'].addEventListener('click', (event) => {
+      const kick = event.target.closest('[data-kick-player]');
+      if (!kick) return;
+      const room = app.room;
+      if (!room || room.phase !== 'lobby' || room.hostId !== room.yourId) return;
+      if (app.pending) return;
+      const name = kick.dataset.kickName || '这名玩家';
+      if (!window.confirm(`确定把「${name}」请出房间吗？`)) return;
+      send({ type: 'kick', playerId: kick.dataset.kickPlayer });
     });
     const resultRuleSwitch = (buttonId, property) => {
       el[buttonId].addEventListener('click', () => {
         const room = app.room;
         if (!room || room.phase !== 'ended') return;
         if (!room.singlePlayer && room.hostId !== room.yourId) return;
-        send({ type: 'settings', [property]: !(room[property] === true || (property === 'scoringEnabled' && room[property] !== false)) });
+        send({ type: 'settings', [property]: !Boolean(room[property]) });
       });
     };
     resultRuleSwitch('result-tribute-toggle', 'tributeEnabled');
     resultRuleSwitch('result-borrow-toggle', 'borrowWindEnabled');
-    resultRuleSwitch('result-scoring-toggle', 'scoringEnabled');
     el['restart-btn'].addEventListener('click', restartGame);
     el['reconnect-now-btn'].addEventListener('click', () => {
       clearTimeout(app.reconnectTimer);
@@ -436,12 +499,25 @@
       }
     });
 
+    // 表情/礼物菜单：点击按钮和菜单之外的区域关闭。
+    document.addEventListener('click', (event) => {
+      const inEmote = event.target.closest('#emote-menu') || event.target.closest('#emote-btn');
+      const inGift = event.target.closest('#gift-menu');
+      const inBasket = event.target.closest('.gift-basket-btn');
+      if (emoteMenuOpen() && !inEmote && !inGift && !inBasket) closeEmoteMenu();
+      if (giftMenuOpen() && !inGift && !inBasket) closeGiftMenu();
+    });
+
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         if (el['fullscreen-tip'] && !el['fullscreen-tip'].hidden) {
           closeFullscreenTip();
         } else if (el['home-join-modal'] && !el['home-join-modal'].hidden) {
           closeJoinModal();
+        } else if (emoteMenuOpen()) {
+          closeEmoteMenu();
+        } else if (giftMenuOpen()) {
+          closeGiftMenu();
         } else if (el['tutorial-match'] && !el['tutorial-match'].hidden) {
           if (el['tutorial-rules-sheet'] && !el['tutorial-rules-sheet'].hidden) {
             closeTutorialRules();
@@ -452,8 +528,6 @@
           }
         } else if (!el['log-drawer'].hidden) {
           closeLog();
-        } else if (!el['result-modal'].hidden) {
-          closeModal('result');
         } else if (!el['counter-modal'].hidden) {
           closeModal('counter');
         } else if (!el['rules-modal'].hidden) {
@@ -463,6 +537,11 @@
     });
 
     document.addEventListener('pointerdown', ensureAudio, { once: true });
+    // 首次用户手势里补一次“全屏 + 锁横屏”；失败不打扰，guard 会继续提示。
+    document.addEventListener('pointerdown', (event) => {
+      if (event.target instanceof Element && event.target.closest('#orientation-fullscreen-btn')) return;
+      attemptLandscapeLock({ requestFullscreen: true });
+    }, { once: true });
     setInterval(updateCountdown, 100);
     setInterval(updateTutorialTimerUi, 200);
   }
@@ -690,6 +769,12 @@
       case 'error':
         handleServerError(message);
         break;
+      case 'kicked':
+        handleKicked(message);
+        break;
+      case 'emote':
+        handleEmote(message);
+        break;
       default:
         break;
     }
@@ -711,6 +796,11 @@
     setUrlRoom(message.roomCode);
     hideReconnect();
     updateConnectionUi('online');
+    // 刷新/重连后把本地保存的头像重新同步给服务端(服务端按玩家保存并广播)。
+    app.lastSentAvatar = null;
+    if (app.avatar && send({ type: 'avatar', dataUrl: app.avatar })) {
+      app.lastSentAvatar = app.avatar;
+    }
   }
 
   function handleLeft(message) {
@@ -722,15 +812,63 @@
     app.tributeSelection.clear();
     app.tributeKey = null;
     app.intentionalLeave = false;
+    clearResultPending();
     clearIdentityAlerts();
     hideFxLayers();
     hideReconnect();
+    resetAvatarStyles();
     closeModal('result');
     closeModal('counter');
     closeLog();
     setUrlRoom(null);
     showScreen('landing');
     if (message.reason) showToast(message.reason);
+  }
+
+  function handleKicked(message) {
+    const reason = message.reason || '你被房主请出了房间。';
+    // 抑制断线重连：服务端会在 kicked 之后立刻关闭连接，这里主动放弃旧会话。
+    app.intentionalLeave = true;
+    clearSession();
+    app.room = null;
+    app.pending = false;
+    app.gameKey = null;
+    app.selected.clear();
+    app.tributeSelection.clear();
+    app.tributeKey = null;
+    app.handSignature = '';
+    app.resultKey = null;
+    app.prevTurnSeat = null;
+    clearResultPending();
+    clearIdentityAlerts();
+    hideFxLayers();
+    hideReconnect();
+    resetAvatarStyles();
+    closeModal('result');
+    closeModal('counter');
+    closeLog();
+    setUrlRoom(null);
+    showScreen('landing');
+    setLandingError('');
+    setFormBusy(false);
+    showToast(reason, 'error', 5000);
+    const socket = app.ws;
+    app.ws = null;
+    app.connected = false;
+    app.connecting = false;
+    stopPing();
+    updateConnectionUi('offline');
+    if (socket) {
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+    }
+    setTimeout(() => {
+      app.intentionalLeave = false;
+      connect();
+    }, 900);
   }
 
   function handleServerError(message) {
@@ -775,6 +913,8 @@
     app.serverOffset = Number(room.serverNow || Date.now()) - Date.now();
     app.playerId = room.yourId;
     app.room = room;
+    rememberRoomAvatars(room);
+    syncAvatarStyles(room);
     setUrlRoom(room.code);
 
     if (room.phase === 'lobby') {
@@ -784,6 +924,7 @@
       app.selected.clear();
       app.handSignature = '';
       app.resultKey = null;
+      clearResultPending();
       closeModal('result');
       closeModal('counter');
       closeLog();
@@ -795,6 +936,7 @@
     if (room.phase === 'tribute') {
       app.prevTurnSeat = null;
       app.selected.clear();
+      clearResultPending();
       clearIdentityAlerts();
       closeLog();
       if (!el['result-modal'].hidden) {
@@ -815,6 +957,7 @@
       app.selected.clear();
       app.handSignature = '';
       app.resultKey = null;
+      clearResultPending();
       app.prevTurnSeat = null;
       app.tributeSelection.clear();
       app.tributeKey = null;
@@ -865,11 +1008,70 @@
 
     if (room.phase === 'ended' && room.result) {
       if (app.resultKey !== resultKey(room)) {
-        openResult(false);
+        if (hasFinishingIdentity(room)) scheduleResultOpen(room);
+        else openResult(false);
       } else if (!el['result-modal'].hidden) {
         renderResultRules();
       }
     }
+  }
+
+  function clearResultPending() {
+    clearTimeout(app.resultPollTimer);
+    app.resultPollTimer = null;
+    app.resultPendingKey = null;
+  }
+
+  function hasFinishingIdentity(room) {
+    const result = room?.result;
+    if (!result) return false;
+    if (result.identityFinishing) return true;
+    if (Array.isArray(result.identityFinishingCards) && result.identityFinishingCards.length > 0) return true;
+    const events = Array.isArray(room.events) ? room.events : [];
+    const skipTypes = new Set(['end', 'trick', 'pass', 'auto_pass', 'finish', 'reveal', 'start', 'tribute']);
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (skipTypes.has(event.type)) continue;
+      if (event.type !== 'play' && event.type !== 'auto_play') return false;
+      return (event.cards || []).some((card) => isIdentityCardId(card.id));
+    }
+    return false;
+  }
+
+  /**
+   * 最后一手含身份牌时，先让身份动画/角色揭晓队列播完再弹结算，
+   * 避免结算抢先盖住身份牌现身。轮询最多 6 秒后兜底打开。
+   */
+  function scheduleResultOpen(room) {
+    const key = resultKey(room);
+    if (app.resultPendingKey === key && app.resultPollTimer) return;
+    app.resultPendingKey = key;
+    clearTimeout(app.resultPollTimer);
+    const startedAt = Date.now();
+    const attempt = () => {
+      app.resultPollTimer = null;
+      const current = app.room;
+      if (!current || current.phase !== 'ended' || !current.result) {
+        app.resultPendingKey = null;
+        return;
+      }
+      if (resultKey(current) !== key) {
+        app.resultPendingKey = null;
+        return;
+      }
+      const identityBusy = Boolean(app.identityShowing || app.identityQueue.length);
+      const roleLayer = el['role-claim-layer'];
+      const roleBusy = Boolean(roleLayer && !roleLayer.hidden && roleLayer.childElementCount > 0);
+      const fxBusy = Boolean(app.playFxActive || app.dealActive);
+      if ((!identityBusy && !roleBusy && !fxBusy) || Date.now() - startedAt > 6000) {
+        app.resultPendingKey = null;
+        if (app.resultKey === key && !el['result-modal'].hidden) return;
+        openResult(false);
+        return;
+      }
+      app.resultPollTimer = setTimeout(attempt, 120);
+    };
+    app.resultPollTimer = setTimeout(attempt, 160);
   }
 
   function maxEventId(events) {
@@ -1185,6 +1387,10 @@
     }
     app.currentScreen = name;
     document.body.classList.toggle('in-game', name === 'game' || name === 'tribute');
+    if (name !== 'game') {
+      closeEmoteMenu();
+      closeGiftMenu();
+    }
     if (name === 'game') updateStageScale();
     if (name === 'landing' || name === 'room') closeFullscreenTip();
     if (name !== 'game') closeLog();
@@ -1270,7 +1476,8 @@
   function toggleTrust() {
     const room = app.room;
     const me = selfPlayer();
-    if (!room || !me || room.singlePlayer || room.phase === 'ended') return;
+    if (!room || !me || room.phase === 'ended') return;
+    // 单人/联机一致：playing/tribute 都可以切换自己的托管。
     send({ type: 'trust', enabled: !me.autoPlay });
   }
 
@@ -1373,9 +1580,521 @@
     return esc(clean.slice(0, 1).toUpperCase() || '?');
   }
 
+  function avatarKey(player) {
+    if (!player) return '';
+    if (player.id) return player.id;
+    return player.seat === undefined ? '' : `seat:${player.seat}`;
+  }
+
+  /**
+   * 头像按 player.id 缓存：服务端把 avatar 全量广播到每个 state，
+   * 这里只保留当前房间里出现过的玩家，避免大图 dataUrl 无限累积。
+   */
+  function rememberRoomAvatars(room) {
+    const keep = new Set();
+    for (const player of room?.players || []) {
+      const key = avatarKey(player);
+      if (!key) continue;
+      keep.add(key);
+      if (player.avatar === null) app.avatarCache.delete(key);
+      else if (typeof player.avatar === 'string') {
+        if (player.avatar) app.avatarCache.set(key, player.avatar);
+        else app.avatarCache.delete(key);
+      }
+    }
+    for (const key of [...app.avatarCache.keys()]) {
+      if (!keep.has(key)) app.avatarCache.delete(key);
+    }
+  }
+
+  function resolveAvatar(player) {
+    if (!player) return '';
+    const key = avatarKey(player);
+    if (player.avatar === null) {
+      if (key) app.avatarCache.delete(key);
+      return '';
+    }
+    if (typeof player.avatar === 'string') {
+      if (player.avatar) {
+        if (key) app.avatarCache.set(key, player.avatar);
+        return player.avatar;
+      }
+      if (key) app.avatarCache.delete(key);
+      return '';
+    }
+    return (key && app.avatarCache.get(key)) || '';
+  }
+
+  function avatarDomKey(player) {
+    const key = avatarKey(player);
+    if (!key) return '';
+    return String(key).replace(/[^A-Za-z0-9_-]/g, '');
+  }
+
+  function avatarStyleElement() {
+    let node = document.getElementById('avatar-sync-styles');
+    if (!node) {
+      node = document.createElement('style');
+      node.id = 'avatar-sync-styles';
+      document.head.appendChild(node);
+    }
+    return node;
+  }
+
+  /**
+   * 把当前房间的头像按 player.id 写成 4 条以内 CSS 规则，
+   * 标记里只放 data-avatar-player，避免同一张 dataUrl 在每个头像/日志行里重复内联。
+   */
+  function syncAvatarStyles(room) {
+    const entries = [];
+    for (const player of room?.players || []) {
+      const domKey = avatarDomKey(player);
+      const avatar = resolveAvatar(player);
+      if (!domKey || !avatar) continue;
+      entries.push([domKey, avatar]);
+    }
+    const signature = entries
+      .map(([key, avatar]) => `${key}:${avatar.length}:${avatar.slice(0, 24)}:${avatar.slice(-24)}`)
+      .join('|');
+    if (signature === app.avatarStyleSignature) return;
+    app.avatarStyleSignature = signature;
+    avatarStyleElement().textContent = entries
+      .map(([key, avatar]) => `[data-avatar-player="${key}"]{background-image:url("${avatar}") !important;background-size:cover !important;background-position:center !important;color:transparent !important;}`)
+      .join('\n');
+  }
+
+  function resetAvatarStyles() {
+    app.avatarStyleSignature = '';
+    const node = document.getElementById('avatar-sync-styles');
+    if (node) node.textContent = '';
+  }
+
+  function avatarAttr(player) {
+    const domKey = avatarDomKey(player);
+    return domKey ? ` data-avatar-player="${esc(domKey)}"` : '';
+  }
+
+  function avatarMarkup(player, className = '') {
+    const name = player?.name || '玩家';
+    const hue = hueFor(player?.seat ?? 0, name);
+    return `<span class="${className}"${avatarAttr(player)} style="--hue:${hue}" title="${esc(name)}">${initial(name)}</span>`;
+  }
+
+  /* ---------------- Avatar upload ---------------- */
+
+  function openAvatarPicker() {
+    const input = el['avatar-input'];
+    if (!input) return;
+    input.value = '';
+    input.click();
+  }
+
+  function dataUrlByteLength(dataUrl) {
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) return dataUrl.length;
+    return Math.floor(((dataUrl.length - comma - 1) * 3) / 4);
+  }
+
+  function updateAvatarPreview() {
+    const preview = el['avatar-preview'];
+    if (!preview) return;
+    const hasImage = Boolean(app.avatar && app.avatar.startsWith('data:image/'));
+    preview.classList.toggle('has-image', hasImage);
+    preview.style.backgroundImage = hasImage ? `url("${app.avatar}")` : '';
+    preview.setAttribute('aria-label', hasImage ? '更换头像' : '上传头像');
+    preview.title = hasImage ? '点击更换头像' : '点击上传头像';
+    const button = el['avatar-upload-btn'];
+    if (button) button.textContent = hasImage ? '更换头像' : '上传头像';
+  }
+
+  function sendAvatarToServer() {
+    if (!app.avatar || !app.connected || !app.session || !app.room) return false;
+    if (app.lastSentAvatar === app.avatar) return false;
+    if (!send({ type: 'avatar', dataUrl: app.avatar })) return false;
+    app.lastSentAvatar = app.avatar;
+    return true;
+  }
+
+  function applyAvatar(dataUrl, sendNow = false) {
+    app.avatar = dataUrl || '';
+    if (app.avatar) localStorage.setItem(AVATAR_KEY, app.avatar);
+    else localStorage.removeItem(AVATAR_KEY);
+    updateAvatarPreview();
+    if (sendNow) sendAvatarToServer();
+  }
+
+  function encodeAvatar(image) {
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) throw new Error('avatar empty');
+    const side = Math.min(width, height);
+    const sourceX = Math.floor((width - side) / 2);
+    const sourceY = Math.floor((height - side) / 2);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      canvas.width = 0;
+      canvas.height = 0;
+      throw new Error('canvas unsupported');
+    }
+    const types = ['image/webp', 'image/jpeg'];
+    let result = '';
+    try {
+      // 居中裁成正方形后，从大尺寸/高质量开始，逐级降尺寸与质量直到 ≤100KB。
+      for (const type of types) {
+        for (const size of AVATAR_OUTPUT_SIZES) {
+          canvas.width = size;
+          canvas.height = size;
+          ctx.clearRect(0, 0, size, size);
+          // JPEG 无透明通道，先铺白底避免透明 PNG 裁切后发黑。
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, size, size);
+          ctx.drawImage(image, sourceX, sourceY, side, side, 0, 0, size, size);
+          for (const quality of AVATAR_QUALITIES) {
+            const candidate = canvas.toDataURL(type, quality);
+            if (!candidate.startsWith(`data:${type}`)) break;
+            if (
+              candidate.length <= AVATAR_MAX_DATA_URL_LENGTH &&
+              dataUrlByteLength(candidate) <= AVATAR_TARGET_BYTES
+            ) {
+              result = candidate;
+              break;
+            }
+          }
+          if (result) break;
+        }
+        if (result) break;
+      }
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    if (!result) throw new Error('avatar too large');
+    return result;
+  }
+
+  function compressAvatar(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => {
+        reader.onload = null;
+        reader.onerror = null;
+        reject(new Error('avatar read failed'));
+      };
+      reader.onload = () => {
+        reader.onload = null;
+        reader.onerror = null;
+        const raw = String(reader.result || '');
+        const image = new Image();
+        image.onerror = () => {
+          image.onload = null;
+          image.onerror = null;
+          image.src = '';
+          reject(new Error('avatar decode failed'));
+        };
+        image.onload = () => {
+          image.onload = null;
+          image.onerror = null;
+          try {
+            resolve(encodeAvatar(image));
+          } catch (error) {
+            reject(error);
+          } finally {
+            image.src = '';
+          }
+        };
+        image.src = raw;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleAvatarFile(file) {
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      showToast('请选择图片文件哦！', 'error');
+      return;
+    }
+    if (file.size > AVATAR_MAX_INPUT_BYTES) {
+      showToast('图片不能超过 2MB，换一张小一点儿的吧！', 'error');
+      return;
+    }
+    try {
+      const dataUrl = await compressAvatar(file);
+      applyAvatar(dataUrl, true);
+      showToast('头像换好啦！', 'gold');
+    } catch {
+      showToast('这张图片处理失败，换一张试试？', 'error');
+    }
+  }
+
+  /* ---------------- Emoji picker / gift baskets ---------------- */
+
+  function emoteMenuOpen() {
+    return Boolean(el['emote-menu'] && !el['emote-menu'].hidden);
+  }
+
+  function giftMenuOpen() {
+    return Boolean(el['gift-menu'] && !el['gift-menu'].hidden);
+  }
+
+  function emoteSendLocked() {
+    return Date.now() < app.emoteLockUntil;
+  }
+
+  function beginEmoteLock() {
+    app.emoteLockUntil = Date.now() + EMOTE_LOCK_MS;
+    updateEmoteControls();
+    clearTimeout(app.emoteLockTimer);
+    app.emoteLockTimer = setTimeout(() => {
+      app.emoteLockTimer = null;
+      app.emoteLockUntil = 0;
+      updateEmoteControls();
+    }, EMOTE_LOCK_MS + 30);
+  }
+
+  function updateEmoteControls() {
+    const locked = emoteSendLocked();
+    if (el['emote-menu']) {
+      for (const node of el['emote-menu'].querySelectorAll('.emoji-item')) node.disabled = locked;
+    }
+    if (el['gift-menu']) {
+      for (const node of el['gift-menu'].querySelectorAll('.gift-item')) node.disabled = locked;
+    }
+    for (const node of document.querySelectorAll('.gift-basket-btn')) node.disabled = locked;
+    if (el['emote-btn']) {
+      el['emote-btn'].classList.toggle('locked', locked);
+      el['emote-btn'].title = locked ? '表情冷却中…' : '表情互动';
+    }
+  }
+
+  function ensureEmojiPicker() {
+    const menu = el['emote-menu'];
+    if (!menu) return;
+    if (menu.dataset.filled !== '1') {
+      menu.innerHTML = EMOJI_LIST.map((emoji) =>
+        `<button type="button" class="emoji-item" data-emoji="${esc(emoji)}" aria-label="发送表情 ${esc(emoji)}">${esc(emoji)}</button>`,
+      ).join('');
+      menu.dataset.filled = '1';
+    }
+    updateEmoteControls();
+  }
+
+  function openEmoteMenu() {
+    if (!el['emote-menu']) return;
+    closeGiftMenu();
+    ensureEmojiPicker();
+    el['emote-menu'].hidden = false;
+    if (el['emote-btn']) el['emote-btn'].setAttribute('aria-expanded', 'true');
+    updateEmoteControls();
+  }
+
+  function closeEmoteMenu() {
+    if (!el['emote-menu'] || el['emote-menu'].hidden) return;
+    el['emote-menu'].hidden = true;
+    if (el['emote-btn']) el['emote-btn'].setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleEmoteMenu() {
+    if (emoteMenuOpen()) {
+      closeEmoteMenu();
+      return;
+    }
+    if (emoteSendLocked()) {
+      showToast('表情还在播放，稍等一下下~', 'error');
+      return;
+    }
+    openEmoteMenu();
+  }
+
+  function sendEmoji(emoji) {
+    if (!emoji) return;
+    if (emoteSendLocked()) {
+      showToast('表情还在播放，稍等一下下~', 'error');
+      return;
+    }
+    if (!app.room) return;
+    closeEmoteMenu();
+    if (!send({ type: 'emote', kind: 'emoji', emoji })) return;
+    beginEmoteLock();
+  }
+
+  function openGiftMenu(seat, anchor) {
+    const menu = el['gift-menu'];
+    if (!menu || !Number.isInteger(seat)) return;
+    const room = app.room;
+    const target = playerAtSeat(seat);
+    if (!room || !target || target.isYou || target.id === room.yourId) return;
+    if (emoteSendLocked()) {
+      showToast('表情还在播放，稍等一下下~', 'error');
+      return;
+    }
+    closeEmoteMenu();
+    app.giftTargetSeat = seat;
+    menu.hidden = false;
+    menu.dataset.seat = String(seat);
+    const targetRect = (anchor && typeof anchor.getBoundingClientRect === 'function')
+      ? anchor.getBoundingClientRect()
+      : document.querySelector(`.game-stage .player-pod[data-seat="${seat}"]`)?.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    let left = 8;
+    let top = 8;
+    if (targetRect) {
+      left = targetRect.left + targetRect.width / 2 - menuRect.width / 2;
+      top = targetRect.top - menuRect.height - 10;
+      // 优先放在玩家面板上方；顶部空间不足时翻到下方。
+      if (top < 8) top = targetRect.bottom + 10;
+    }
+    left = Math.max(8, Math.min(window.innerWidth - menuRect.width - 8, left));
+    top = Math.max(8, Math.min(window.innerHeight - menuRect.height - 8, top));
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.right = 'auto';
+    updateEmoteControls();
+  }
+
+  function closeGiftMenu() {
+    if (!el['gift-menu'] || el['gift-menu'].hidden) return;
+    el['gift-menu'].hidden = true;
+    app.giftTargetSeat = null;
+    updateEmoteControls();
+  }
+
+  function sendGift(kind) {
+    if (!GIFT_ICONS[kind]) return;
+    if (emoteSendLocked()) {
+      showToast('礼物还在飞，稍等一下下~', 'error');
+      return;
+    }
+    const room = app.room;
+    const seat = app.giftTargetSeat;
+    if (!room || !Number.isInteger(seat)) {
+      closeGiftMenu();
+      return;
+    }
+    const target = playerAtSeat(seat);
+    if (!target || target.id === room.yourId) {
+      closeGiftMenu();
+      return;
+    }
+    if (!['playing', 'tribute', 'ended'].includes(room.phase)) {
+      showToast('现在还不能送花/砸蛋哦！', 'error');
+      closeGiftMenu();
+      return;
+    }
+    closeGiftMenu();
+    if (!send({ type: 'emote', kind, targetSeat: seat })) return;
+    beginEmoteLock();
+  }
+
+  function avatarAnchor(seat) {
+    const room = app.room;
+    if (!room || !Number.isFinite(Number(seat))) return null;
+    const seatNumber = Number(seat);
+    if (seatNumber === room.youSeat) {
+      return document.querySelector('#self-pod .self-avatar') || el['self-pod'];
+    }
+    return document.querySelector(`.game-stage .player-pod[data-seat="${seatNumber}"] .pod-avatar`) ||
+      document.querySelector(`.game-stage .player-pod[data-seat="${seatNumber}"]`);
+  }
+
+  function animationPoint(node) {
+    const rect = node?.getBoundingClientRect?.();
+    if (!rect || (rect.width === 0 && rect.height === 0)) return null;
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  /** 通用 emoji 气泡：锚定在发送者头像位置，3s 后移除；顶部空间不足时翻到下方。 */
+  function showEmojiBubble(message) {
+    const layer = el['emote-layer'];
+    const emoji = typeof message.emoji === 'string' ? message.emoji : '';
+    if (!layer || !emoji) return;
+    while (layer.querySelectorAll('.emote-bubble').length >= 12) {
+      layer.querySelector('.emote-bubble')?.remove();
+    }
+    const seat = Number(message.seat);
+    const anchor = Number.isFinite(seat) ? avatarAnchor(seat) : null;
+    const bubble = document.createElement('div');
+    bubble.className = 'emote-bubble';
+    bubble.textContent = emoji;
+    layer.appendChild(bubble);
+    const avatarRect = anchor?.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const bubbleRect = bubble.getBoundingClientRect();
+    let left = viewportW / 2;
+    let top = viewportH / 2;
+    let below = false;
+    if (avatarRect) {
+      left = avatarRect.left + avatarRect.width / 2;
+      top = avatarRect.top - 6;
+      if (top - bubbleRect.height - 18 < 6) {
+        below = true;
+        top = avatarRect.bottom + 6;
+      }
+    }
+    const halfWidth = bubbleRect.width / 2;
+    left = Math.max(halfWidth + 8, Math.min(viewportW - halfWidth - 8, left));
+    if (below) {
+      bubble.classList.add('below');
+      top = Math.max(8, Math.min(viewportH - bubbleRect.height - 16, top));
+    } else {
+      top = Math.max(bubbleRect.height + 18, Math.min(viewportH - 8, top));
+    }
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+    setTimeout(() => {
+      bubble.classList.add('out');
+      setTimeout(() => bubble.remove(), 240);
+    }, 2760);
+  }
+
+  /** 送花/砸蛋：1500ms 飞行 → 1500ms 绽放/碎裂，总计 3s。 */
+  function playGiftAnimation(message) {
+    const layer = el['emote-layer'];
+    const kind = message?.kind;
+    if (!layer || !GIFT_ICONS[kind]) return;
+    const senderSeat = Number(message.seat);
+    const targetSeat = Number(message.targetSeat);
+    const targetPoint = Number.isFinite(targetSeat) ? animationPoint(avatarAnchor(targetSeat)) : null;
+    if (!targetPoint) return;
+    const senderPoint = Number.isFinite(senderSeat) ? animationPoint(avatarAnchor(senderSeat)) : null;
+    const start = senderPoint || {
+      x: window.innerWidth / 2,
+      y: window.innerHeight * 0.72,
+    };
+    const fly = document.createElement('div');
+    fly.className = 'gift-fly';
+    fly.textContent = GIFT_ICONS[kind];
+    fly.style.left = `${Math.round(start.x)}px`;
+    fly.style.top = `${Math.round(start.y)}px`;
+    fly.style.setProperty('--gift-dx', `${Math.round(targetPoint.x - start.x)}px`);
+    fly.style.setProperty('--gift-dy', `${Math.round(targetPoint.y - start.y)}px`);
+    layer.appendChild(fly);
+    setTimeout(() => {
+      fly.remove();
+      const landing = document.createElement('div');
+      landing.className = kind === 'flower' ? 'gift-bloom' : 'gift-smash';
+      landing.textContent = GIFT_LANDING_ICONS[kind];
+      landing.style.left = `${Math.round(targetPoint.x)}px`;
+      landing.style.top = `${Math.round(targetPoint.y)}px`;
+      layer.appendChild(landing);
+      setTimeout(() => landing.remove(), 1500);
+    }, 1500);
+  }
+
+  function handleEmote(message) {
+    const kind = message?.kind;
+    if (kind === 'emoji') showEmojiBubble(message);
+    else if (GIFT_ICONS[kind]) playGiftAnimation(message);
+    // 自己的表情/礼物以服务端广播时间为准锁 3s，确保动画完整播完。
+    if (message.playerId && message.playerId === app.playerId) beginEmoteLock();
+  }
+
   function renderRoom(room) {
     el['room-code-display'].textContent = room.code;
     el['room-code-display'].setAttribute('aria-label', `房间号 ${room.code}`);
+    const hostCanKick = room.hostId === room.yourId && !room.singlePlayer;
     const slots = [];
     for (let seat = 0; seat < 4; seat += 1) {
       const player = playerAtSeat(seat);
@@ -1392,6 +2111,7 @@
       }
       const isYou = player.id === room.yourId;
       const isHost = player.id === room.hostId;
+      const canKick = hostCanKick && !isYou;
       const classes = [
         'room-slot',
         'filled',
@@ -1413,7 +2133,8 @@
       slots.push(`
         <div class="${classes}">
           <span class="slot-seat-number">SEAT 0${seat + 1}</span>
-          <div class="slot-avatar" style="--hue:${hueFor(seat, player.name)}">${initial(player.name)}</div>
+          ${canKick ? `<button type="button" class="kick-btn" data-kick-player="${esc(player.id)}" data-kick-name="${esc(player.name)}" title="请出房间" aria-label="把 ${esc(player.name)} 请出房间">×</button>` : ''}
+          <div class="slot-avatar"${avatarAttr(player)} style="--hue:${hueFor(seat, player.name)}">${initial(player.name)}</div>
           <p class="slot-name" title="${esc(player.name)}">${esc(player.name)}</p>
           <div class="slot-meta">${badges.join('')}</div>
         </div>
@@ -1534,6 +2255,43 @@
 
   function isTouchUi() {
     return window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 900;
+  }
+
+  function isPortraitViewport() {
+    if (window.matchMedia) {
+      try {
+        return window.matchMedia('(orientation: portrait)').matches;
+      } catch {
+        // fall through
+      }
+    }
+    return window.innerHeight > window.innerWidth;
+  }
+
+  /**
+   * 竖屏时尝试锁横屏。requestFullscreen 只能在用户手势内调用，
+   * 所以初始化时只尝试 lock，首次 pointerdown 再带全屏尝试一次。
+   * 成功不提示；失败保留 task-19 的 orientation guard 引导。
+   */
+  async function attemptLandscapeLock({ requestFullscreen = false } = {}) {
+    if (!isPortraitViewport()) return false;
+    const orientation = screen.orientation;
+    if (!orientation || typeof orientation.lock !== 'function') return false;
+    try {
+      const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement;
+      if (requestFullscreen && !fullscreenElement) {
+        const target = document.documentElement;
+        const request = target.requestFullscreen || target.webkitRequestFullscreen;
+        if (request) await request.call(target);
+      }
+      await orientation.lock('landscape');
+      updateFullscreenUi();
+      updateStageScale();
+      return true;
+    } catch {
+      // 浏览器不允许时静默失败，guard 提示仍然可见。
+      return false;
+    }
   }
 
   async function enterFullscreen() {
@@ -1858,7 +2616,7 @@
       return `
         <div class="${classes}" data-seat="${player.seat}" style="--hue:${hueFor(player.seat, player.name)}">
           <span class="tribute-role">${player.isWinner ? '赢家' : '输家'}</span>
-          <span class="tribute-avatar">${initial(player.name)}</span>
+          <span class="tribute-avatar"${avatarAttr(player)}>${initial(player.name)}</span>
           <b>${esc(player.name)}${player.seat === youSeat ? ' · 你' : ''}</b>
           <em>${player.handCount} 张</em>
           ${player.isCurrent ? '<span class="tribute-now">挑牌中…</span>' : ''}
@@ -1870,6 +2628,18 @@
     renderTributeHand(room);
     renderTributeEvents(room);
     updateTributeAction();
+  }
+
+  function mergeTributePoolEntries(room, key) {
+    const visible = Array.isArray(room[key]) ? room[key] : [];
+    const picked = Array.isArray(room[key === 'pool' ? 'pickedPool' : 'pickedReturnPool'])
+      ? room[key === 'pool' ? 'pickedPool' : 'pickedReturnPool']
+      : [];
+    if (picked.length === 0) return visible.map((entry) => ({ ...entry, picked: Boolean(entry.picked) }));
+    const merged = [...visible, ...picked].map((entry) => ({ ...entry, picked: Boolean(entry.picked) }));
+    // 被挑走的牌保留在牌池原位置，用 order 还原展示顺序。
+    merged.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+    return merged;
   }
 
   function renderTributePools(room) {
@@ -1887,35 +2657,61 @@
       return;
     }
 
-    el['tribute-pool'].innerHTML = room.pool.length
-      ? room.pool.map((entry) => tributeCard(entry.card, 'pool', poolActive, entry.fromName)).join('')
+    const poolEntries = mergeTributePoolEntries(room, 'pool');
+    const returnEntries = mergeTributePoolEntries(room, 'returnPool');
+    el['tribute-pool'].innerHTML = poolEntries.length
+      ? poolEntries.map((entry) => tributeCard(entry.card, 'pool', poolActive && !entry.picked, entry.fromName, entry)).join('')
       : '<p class="tribute-empty">暂无上供牌</p>';
-    el['tribute-return-pool'].innerHTML = room.returnPool.length
-      ? room.returnPool.map((entry) => tributeCard(entry.card, 'returnPool', returnActive, entry.fromName)).join('')
+    el['tribute-return-pool'].innerHTML = returnEntries.length
+      ? returnEntries.map((entry) => tributeCard(entry.card, 'returnPool', returnActive && !entry.picked, entry.fromName, entry)).join('')
       : '<p class="tribute-empty">还没有还牌</p>';
     el['tribute-pool'].classList.toggle('is-active', poolActive);
     el['tribute-return-pool'].classList.toggle('is-active', returnActive);
+    const pickedPoolCount = poolEntries.filter((entry) => entry.picked).length;
+    const pickedReturnCount = returnEntries.filter((entry) => entry.picked).length;
     el['tribute-pool-note'].textContent = poolActive
       ? '点一张你想要的牌'
-      : '输家供出的牌';
+      : pickedPoolCount
+        ? `输家供出的牌 · 已挑走 ${pickedPoolCount} 张`
+        : '输家供出的牌';
     el['tribute-return-note'].textContent = returnActive
       ? '点一张你想要的牌'
-      : '赢家还出的牌';
+      : pickedReturnCount
+        ? `赢家还出的牌 · 已挑走 ${pickedReturnCount} 张`
+        : '赢家还出的牌';
   }
 
-  function tributeCard(card, source, clickable, fromName = '') {
+  function tributePickedBadge(entry) {
+    const seat = Number(entry.pickedBySeat);
+    const picker = Number.isInteger(seat) ? playerAtSeat(seat) : null;
+    const pickerName = entry.pickedByName || picker?.name || (entry.auto ? '自动选择' : '已挑走');
+    const avatar = resolveAvatar(picker);
+    return `<span class="tribute-card-picker" style="position:absolute;left:3px;bottom:2px;z-index:2;display:inline-flex;align-items:center;gap:3px;max-width:calc(100% - 6px);padding:1px 5px 1px 1px;border-radius:999px;background:rgba(4,32,58,0.92);box-shadow:0 0 0 1px rgba(255,231,160,0.45);color:#ffe7a0;font-size:9px;font-weight:900;line-height:1.2;">
+      <span style="display:grid;width:16px;height:16px;flex:0 0 auto;place-items:center;overflow:hidden;border-radius:50%;background:#0b3b63;color:#ffe7a0;font-size:9px;font-weight:900;">${avatar ? `<img src="${esc(avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : initial(pickerName)}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(pickerName)}</span>
+    </span>`;
+  }
+
+  function tributeCard(card, source, clickable, fromName = '', meta = {}) {
     const suit = SUITS[card.suit] || SUITS.s;
     const selected = app.tributeSelection.has(card.id);
+    const picked = Boolean(meta.picked);
+    const title = picked
+      ? `${fromName ? `${fromName} 的牌 · ` : ''}已被 ${meta.pickedByName || '他人'} 挑走`
+      : (fromName ? `${fromName} 的牌` : suit.name + card.rank);
+    // 被挑走的牌保留原位并灰化牌面；挑选者角标不受灰化滤镜影响。
+    const pickedFaceStyle = picked ? 'style="filter:grayscale(1);opacity:0.5;"' : '';
     return `<button type="button"
-      class="tribute-pick-card ${suit.red ? 'red' : ''} ${selected ? 'selected' : ''} ${clickable ? 'clickable' : ''}"
-      data-tribute-source="${source}" data-card-id="${esc(card.id)}"
+      class="tribute-pick-card ${suit.red ? 'red' : ''} ${selected ? 'selected' : ''} ${clickable ? 'clickable' : ''} ${picked ? 'picked' : ''}"
+      data-tribute-source="${source}" data-card-id="${esc(card.id)}" data-picked="${picked ? 'true' : 'false'}"
       aria-pressed="${selected ? 'true' : 'false'}"
-      title="${esc(fromName ? `${fromName} 的牌` : suit.name + card.rank)}"
+      ${picked ? 'aria-disabled="true" style="background:#e4decf;border-color:#b8ae95;"' : ''}
+      title="${esc(title)}"
       ${clickable ? '' : 'disabled'}>
-      <span class="tribute-card-rank">${esc(card.rank)}</span>
-      <span class="tribute-card-suit">${suit.symbol}</span>
-      <span class="tribute-card-watermark">${suit.symbol}</span>
-      ${fromName ? `<span class="tribute-card-from">${esc(fromName)}</span>` : ''}
+      <span class="tribute-card-rank" ${pickedFaceStyle}>${esc(card.rank)}</span>
+      <span class="tribute-card-suit" ${pickedFaceStyle}>${suit.symbol}</span>
+      <span class="tribute-card-watermark" ${pickedFaceStyle}>${suit.symbol}</span>
+      ${picked ? tributePickedBadge(meta) : fromName ? `<span class="tribute-card-from">${esc(fromName)}</span>` : ''}
     </button>`;
   }
 
@@ -2085,13 +2881,12 @@
   function renderGame(room) {
     el['game-room-code'].textContent = room.code;
     el['game-phase-label'].textContent = room.phase === 'ended'
-      ? '对局结束'
-      : `第 ${room.round || 1} 局 · ${room.singlePlayer ? '单机欢乐中' : '欢乐进行中'}`;
-    el['game-result-btn'].hidden = room.phase !== 'ended';
+      ? '已结束'
+      : `第 ${room.round || 1} 局`;
     updateSoundUi();
     updateTrustButton(room);
     updateSingleSettings(room);
-    renderScores(room);
+    renderSharedScore(room);
     renderLandlordStrip(room);
     renderCounter(room);
     renderPods(room);
@@ -2106,11 +2901,12 @@
     const button = el['game-trust-btn'];
     if (!button) return;
     const me = playerAtSeat(room.youSeat);
-    button.hidden = Boolean(room.singlePlayer);
+    const activePhase = room.phase === 'playing' || room.phase === 'tribute';
+    button.hidden = false;
     button.classList.toggle('on', Boolean(me?.autoPlay));
     button.textContent = me?.autoPlay ? '取消' : '托管';
-    button.title = me?.autoPlay ? '取消自动出牌' : '开启自动出牌';
-    button.disabled = room.phase === 'ended';
+    button.title = me?.autoPlay ? '取消自动出牌' : '开启自动出牌（单机/联机都可用）';
+    button.disabled = !activePhase || app.pending || app.dealActive;
   }
 
   function updateSingleSettings(room) {
@@ -2119,14 +2915,15 @@
       if (button) button.hidden = !visible;
     }
     if (!visible) return;
-    el['single-counter-btn'].textContent = `记牌·${room.counterEnabled ? '开' : '关'}`;
+    el['single-counter-btn'].textContent = '记牌';
     el['single-counter-btn'].classList.toggle('on', Boolean(room.counterEnabled));
-    el['single-tribute-btn'].textContent = `供牌·${room.tributeEnabled ? '开' : '关'}`;
+    el['single-counter-btn'].title = `记牌器：${room.counterEnabled ? '开启' : '关闭'}（点击切换）`;
+    el['single-tribute-btn'].textContent = '供牌';
     el['single-tribute-btn'].classList.toggle('on', Boolean(room.tributeEnabled));
-    el['single-tribute-btn'].title = '供牌规则在下一局生效';
-    el['single-borrow-btn'].textContent = `借风·${room.borrowWindEnabled ? '开' : '关'}`;
+    el['single-tribute-btn'].title = `供牌规则：${room.tributeEnabled ? '开启' : '关闭'}（下一局生效）`;
+    el['single-borrow-btn'].textContent = '借风';
     el['single-borrow-btn'].classList.toggle('on', Boolean(room.borrowWindEnabled));
-    el['single-borrow-btn'].title = '借风规则在下一局生效';
+    el['single-borrow-btn'].title = `借风规则：${room.borrowWindEnabled ? '开启' : '关闭'}（下一局生效）`;
 
   }
 
@@ -2188,25 +2985,28 @@
     }).join('');
   }
 
-  function renderScores(room) {
-    const enabled = room.scoringEnabled !== false;
-    const strip = el['score-strip'];
-    if (!strip) return;
-    strip.hidden = !enabled;
-    if (!enabled) {
-      strip.innerHTML = '';
-      return;
-    }
-    strip.innerHTML = '<span class="score-strip-label">本场</span>' + room.players
-      .slice()
-      .sort((a, b) => a.seat - b.seat)
-      .map((player) => `
-        <span class="score-chip ${player.seat === room.turnSeat ? 'current' : ''}"
-          style="--hue:${hueFor(player.seat, player.name)}"
-          title="${esc(player.name)} 本场 ${Number(room.roundScores?.[player.seat] || 2)} 分">
-          <i>${initial(player.name)}</i><b>${Number(room.roundScores?.[player.seat] || 2)}</b>
-        </span>
-      `).join('');
+  function renderSharedScore(room) {
+    const node = el['shared-score'];
+    if (!node) return;
+    // 整桌共用一个“本局积分” S，随任意玩家出牌更新（不再累计，也不再受积分开关影响）。
+    const value = Number(room.roundScore ?? room.sharedScore ?? 0);
+    const label = node.querySelector('.shared-score-label');
+    if (label) label.textContent = '本局积分';
+    const valueNode = node.querySelector('.shared-score-value');
+    if (valueNode) valueNode.textContent = String(value);
+    node.hidden = false;
+    node.title = `本局积分 ${value}`;
+    node.setAttribute('aria-label', `本局积分 ${value}`);
+  }
+
+  function personalScoreBadge(room, player) {
+    if (!room || !player) return '';
+    const own = Boolean(player.isYou) || player.id === room.yourId || player.seat === room.youSeat;
+    const raw = own
+      ? (room.yourScore ?? room.scores?.[player.seat] ?? 0)
+      : (room.scores?.[player.seat] ?? 0);
+    const total = Number(raw) || 0;
+    return `<span class="personal-score" title="个人累计积分 ${total}" aria-label="个人累计积分 ${total}">积分 ${total}</span>`;
   }
 
   function renderLandlordStrip(room) {
@@ -2255,11 +3055,6 @@
     return badges.join('');
   }
 
-  function scoreBadge(room, seat) {
-    if (room.scoringEnabled === false) return '';
-    return `<span class="score-badge">积分 ${Number(room.scores?.[seat] || 0)}</span>`;
-  }
-
   function reportBeacon(player) {
     if (player.finished || player.handCount > 2 || player.handCount < 1) return '';
     return `<span class="report-beacon cartoon-siren" title="${player.handCount === 1 ? '报单' : '报双'}" aria-label="${player.handCount === 1 ? '报单' : '报双'}">
@@ -2273,10 +3068,8 @@
     const role = room.yourRole;
     if (!role) return '';
     const landlord = Boolean(role.isLandlord);
-    const cards = (role.cards || []).map(miniIdentity).join('');
     return `<span class="private-role-badge ${landlord ? 'landlord' : 'farmer'}">
-      <b>${landlord ? '♛ 地主' : '❧ 农民'}${role.doubleLandlord ? ' · 双' : ''}</b>
-      ${cards}
+      <b>${landlord ? '地主' : '农民'}${role.doubleLandlord ? '（双）' : ''}</b>
     </span>`;
   }
 
@@ -2340,11 +3133,7 @@
     layer.innerHTML = `
       <div class="private-id-card-panel ${landlord ? 'landlord' : 'farmer'}">
         <span class="private-id-emblem">${landlord ? '♛' : '❧'}</span>
-        <p class="private-id-kicker">你的身份</p>
         <h2>${landlord ? (double ? '你是双地主' : '你是地主') : '你是农民'}</h2>
-        <p class="private-id-copy">${landlord
-          ? '先手出牌，先把牌出完；身份牌打出后全场都会知道。'
-          : '和队友一起拦住地主；队友是谁要先靠猜。'}</p>
         ${cards ? `<div class="private-id-cards">${cards}</div>` : '<div class="private-id-seal">农</div>'}
       </div>
     `;
@@ -2394,16 +3183,17 @@
     const trick = trickPlayFor(room, player.seat);
     return `
       <div class="${classes}" style="--hue:${hueFor(player.seat, player.name)}" data-seat="${player.seat}">
-        <div class="pod-avatar">${initial(player.name)}</div>
+        <div class="pod-avatar"${avatarAttr(player)}>${initial(player.name)}</div>
         <div class="pod-body">
           <div class="pod-name" title="${esc(player.name)}">${esc(player.name)}${player.isYou ? ' · 你' : ''}</div>
-          <div class="pod-badges">${app.dealActive ? '' : playerBadges(player)}${app.dealActive ? '' : reportBeacon(player)}${app.dealActive ? '' : scoreBadge(room, player.seat)}</div>
+          <div class="pod-badges">${app.dealActive ? '' : playerBadges(player)}${app.dealActive ? '' : reportBeacon(player)}${app.dealActive ? '' : personalScoreBadge(room, player)}</div>
         </div>
         ${isTurn ? `<span class="turn-clock" title="回合剩余时间"><b>${turnClockSeconds(room)}</b><i>s</i></span>` : ''}
         <div class="pod-stack" aria-hidden="true">
           <span class="card-back-mini"></span><span class="card-back-mini"></span><span class="card-back-mini"></span>
           <span class="stack-count ${!player.finished && player.handCount <= 2 ? 'low' : ''}">${player.finished ? '✓' : visibleCount}</span>
         </div>
+        ${app.dealActive ? '' : `<button type="button" class="gift-basket-btn" data-seat="${player.seat}" title="给 ${esc(player.name)} 送花或砸蛋" aria-label="给 ${esc(player.name)} 送花或砸蛋"${emoteSendLocked() ? ' disabled' : ''}>🧺</button>`}
       </div>
       ${trick ? `<div class="seat-play">${trickMarkup(trick)}</div>` : ''}
     `;
@@ -2437,10 +3227,10 @@
     ].filter(Boolean).join(' ');
     el['self-pod'].dataset.seat = String(me.seat);
     el['self-pod'].innerHTML = `
-      <div class="self-avatar" style="--hue:${hueFor(me.seat, me.name)}">${initial(me.name)}</div>
+      <div class="self-avatar"${avatarAttr(me)} style="--hue:${hueFor(me.seat, me.name)}">${initial(me.name)}</div>
       <div class="self-info">
         <div class="self-name">${esc(me.name)} · 你</div>
-        <div class="self-tags">${app.dealActive ? '' : playerBadges(me, true)}${app.dealActive ? '' : privateRoleMarkup(room)}${app.dealActive ? '' : scoreBadge(room, me.seat)}</div>
+        <div class="self-tags">${app.dealActive ? '' : playerBadges(me, true)}${app.dealActive ? '' : privateRoleMarkup(room)}${app.dealActive ? '' : personalScoreBadge(room, me)}</div>
       </div>
       ${isTurn ? `<span class="turn-clock self-turn-clock" title="回合剩余时间"><b>${turnClockSeconds(room)}</b><i>s</i></span>` : ''}
     `;
@@ -2566,22 +3356,18 @@
     el['clear-btn'].hidden = selected.length === 0;
     el['selection-info'].classList.remove('valid', 'invalid');
 
-    if (selected.length === 0) {
-      if (room.phase === 'ended') {
-        el['selection-info'].textContent = '对局已结束';
-      } else if (isYourTurn) {
-        el['selection-info'].textContent = room.mustIncludeDiamond4
-          ? '首手必须包含 ♦4'
-          : '点击手牌选择要出的牌';
-      } else {
-        el['selection-info'].textContent = `等 ${name} 出牌中…`;
-      }
-    } else if (evaluation.ok) {
-      el['selection-info'].classList.add('valid');
-      el['selection-info'].textContent = `已选 ${selected.length} 张 · ${evaluation.combo.label}${isYourTurn ? ' · 可以出！' : ''}`;
-    } else {
+    if (room.phase !== 'playing') {
+      el['selection-info'].textContent = '';
+    } else if (!isYourTurn) {
+      el['selection-info'].textContent = `等待${name}出牌中`;
+    } else if (evaluation.reason === 'cannot-beat') {
       el['selection-info'].classList.add('invalid');
-      el['selection-info'].textContent = evaluation.message;
+      el['selection-info'].textContent = '大不过上家';
+    } else if (evaluation.reason === 'invalid-combo') {
+      el['selection-info'].classList.add('invalid');
+      el['selection-info'].textContent = '牌型不合法';
+    } else {
+      el['selection-info'].textContent = '';
     }
 
     const canPlay =
@@ -2600,19 +3386,7 @@
     el['pass-btn'].textContent = '过！';
     el['hint-btn'].disabled = !(room.phase === 'playing' && isYourTurn && !app.pending && !app.playFxActive && !app.dealActive && !app.identityIntroActive);
 
-    if (room.phase === 'ended') {
-      el['action-hint'].textContent = '这局结束啦，点右上角“看结果”瞅瞅谁赢了！';
-    } else if (isYourTurn) {
-      if (!room.lastPlay && room.mustIncludeDiamond4) {
-        el['action-hint'].textContent = '第一手必须带 ♦4 哦，先手不能过！';
-      } else if (!room.lastPlay) {
-        el['action-hint'].textContent = '这轮你说了算，想出啥牌型都行！';
-      } else {
-        el['action-hint'].textContent = '选好牌就出，压不过就潇洒点“过”！';
-      }
-    } else {
-      el['action-hint'].textContent = `等 ${name} 出牌中…`;
-    }
+    el['action-hint'].textContent = '';
 
     updateHandSelection();
     updateCountdown();
@@ -2879,22 +3653,30 @@
   }
 
   function evaluateSelection(cards, room) {
-    if (cards.length === 0) return { ok: false, message: '' };
-    if (cards.length > 5) return { ok: false, message: '一次最多选 5 张啦！' };
+    if (cards.length === 0) return { ok: false, reason: 'empty', message: '' };
+    if (cards.length > 5) return { ok: false, reason: 'invalid-combo', message: '一次最多选 5 张啦！' };
     const combo = classifyClient(cards);
     if (!combo) {
-      return { ok: false, message: '牌型不合法：单牌 / 对子 / 三条 / 顺子 / 同花 / 三带二 / 四带一 / 同花顺 / 皇家同花顺' };
+      return {
+        ok: false,
+        reason: 'invalid-combo',
+        message: '牌型不合法：单牌 / 对子 / 三条 / 顺子 / 同花 / 三带二 / 四带一 / 同花顺 / 皇家同花顺',
+      };
     }
     if (room.mustIncludeDiamond4 && !cards.some((card) => card.id === 'd4')) {
-      return { ok: false, message: '第一手得带上 ♦4 哦！' };
+      return { ok: false, reason: 'must-diamond4', message: '第一手得带上 ♦4 哦！' };
     }
     if (room.lastPlay) {
       const previous = classifyClient(room.lastPlay.cards);
       if (!previous || !canBeatClient(combo, previous)) {
-        return { ok: false, message: `这手 ${combo.label} 压不过上家的 ${room.lastPlay.combo?.label || '牌型'}` };
+        return {
+          ok: false,
+          reason: 'cannot-beat',
+          message: `这手 ${combo.label} 压不过上家的 ${room.lastPlay.combo?.label || '牌型'}`,
+        };
       }
     }
-    return { ok: true, combo, message: '' };
+    return { ok: true, reason: 'ok', combo, message: '' };
   }
 
   /* ---------------- Actions ---------------- */
@@ -2981,11 +3763,14 @@
     app.handSignature = '';
     app.resultKey = null;
     app.prevTurnSeat = null;
+    clearResultPending();
     clearIdentityAlerts();
+    hideFxLayers();
+    hideReconnect();
+    resetAvatarStyles();
     closeModal('result');
     closeModal('rules');
     closeLog();
-    hideReconnect();
     setUrlRoom(null);
     showScreen('landing');
     setLandingError('');
@@ -3023,36 +3808,34 @@
       result.winner === 'farmers' ? '农民翻身啦！' : '握手言和！';
     el['result-reason'].textContent = result.reason || '';
 
-    const landlords = (result.identities || []).filter((entry) => entry.team === 'landlord');
-    const farmers = (result.identities || []).filter((entry) => entry.team === 'farmers');
     const identityBySeat = new Map((result.identities || []).map((entry) => [entry.seat, entry]));
     const orderedEntries = [
       ...(result.rankings || []),
       ...(result.unfinished || []),
     ];
-    const showScore = Boolean(result.scoreDeltas);
+    // 结算固定 5 列：顺位 / 玩家 / 阵营身份 / 本局变化 / 当前个人积分。
+    const deltas = Array.isArray(result.scoreDeltas) ? result.scoreDeltas : [];
+    const totals = Array.isArray(result.scoreTotals) ? result.scoreTotals : (room.scores || []);
     el['result-teams'].innerHTML = `
-      <div class="score-board ${showScore ? '' : 'scoring-off'}">
+      <div class="score-board">
         <div class="score-board-head">
-          <span>顺位</span><span>玩家</span><span>阵营身份</span>
-          ${showScore ? '<span>本场分</span><span>积分变化</span><span>当前积分</span>' : ''}
+          <span>顺位</span><span>玩家</span><span>阵营身份</span><span>本局变化</span><span>当前积分</span>
         </div>
         ${orderedEntries.map((entry) => {
           const identity = identityBySeat.get(entry.seat) || { team: entry.team, cards: [] };
-          const delta = showScore ? Number(result.scoreDeltas?.[entry.seat] || 0) : 0;
-          const total = showScore ? Number(result.scoreTotals?.[entry.seat] || 0) : 0;
-          const roundScore = showScore ? Number(result.roundScores?.[entry.seat] || 2) : 0;
           const landlord = identity.team === 'landlord';
+          const player = playerAtSeat(entry.seat) || { seat: entry.seat, name: entry.name };
+          const delta = Number(deltas[entry.seat] || 0);
+          const total = Number(totals[entry.seat] ?? 0);
           return `<div class="score-board-row ${landlord ? 'landlord' : 'farmer'}">
             <span class="score-place">${entry.place ? String(entry.place).padStart(2, '0') : '—'}</span>
-            <span class="score-name">${esc(entry.name)}</span>
+            <span class="score-name" style="display:flex;align-items:center;gap:6px;">${avatarMarkup(player, 'log-avatar')}<span>${esc(entry.name)}</span></span>
             <span class="score-identity">
               <b>${landlord ? '地主' : '农民'}</b>
               <span class="mini-identities">${(identity.cards || []).map(miniIdentity).join('')}</span>
             </span>
-            ${showScore ? `<span class="score-round">${roundScore}</span>
-              <span class="score-delta ${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${delta > 0 ? '+' : ''}${delta}</span>
-              <span class="score-total">${total}</span>` : ''}
+            <span class="score-delta ${delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}">${delta > 0 ? '+' : ''}${delta}</span>
+            <span class="score-total">${total}</span>
           </div>`;
         }).join('')}
       </div>
@@ -3095,6 +3878,8 @@
     }
 
     el['result-modal'].hidden = false;
+    closeEmoteMenu();
+    closeGiftMenu();
     syncModalState();
     playSound('win');
   }
@@ -3103,13 +3888,13 @@
     const room = app.room;
     if (!room) return;
     const canEdit = Boolean(room.singlePlayer) || room.hostId === room.yourId;
+    // 积分规则已全局取消：结算规则面板只保留供牌、借风两项。
     const rules = [
       ['result-tribute-toggle', 'result-tribute-label', 'tributeEnabled'],
       ['result-borrow-toggle', 'result-borrow-label', 'borrowWindEnabled'],
-      ['result-scoring-toggle', 'result-scoring-label', 'scoringEnabled'],
     ];
     for (const [buttonId, labelId, key] of rules) {
-      const enabled = key === 'scoringEnabled' ? room[key] !== false : Boolean(room[key]);
+      const enabled = Boolean(room[key]);
       el[buttonId].disabled = !canEdit;
       el[buttonId].classList.toggle('on', enabled);
       el[buttonId].setAttribute('aria-checked', enabled ? 'true' : 'false');
@@ -3206,9 +3991,7 @@
       ? (event.allIdentityCards || event.identityCards || [])
       : (event.identityCards || []);
     alert.innerHTML = `
-      <p class="identity-kicker">身份牌亮啦！</p>
-      <div class="identity-crown">♛</div>
-      <h2>${double ? '双地主闪亮登场！' : '哇！身份牌现身！'}</h2>
+      <h2>${double ? '双地主闪亮登场！' : '身份牌现身！'}</h2>
       <p><b>${esc(name)}</b> 打出了身份牌，地主身份藏不住啦！</p>
       <div class="identity-showcase">
         ${shownCards.map((card) => {
@@ -3216,8 +3999,6 @@
           return `<div class="identity-card-large ${suit.red ? 'red' : ''}">${esc(card.rank)}<span>${suit.symbol}</span></div>`;
         }).join('')}
       </div>
-      <p>${double ? '原来两张身份牌都在他手里，这波刺激了！三名农民快联手拦住他！' : '从这一刻起，全场都知道谁是地主啦，快商量对策！'}</p>
-      <span class="identity-countdown">1.5s</span>
       <button type="button" class="identity-dismiss">知道啦</button>
     `;
     el['identity-alert-layer'].appendChild(alert);
@@ -3322,16 +4103,33 @@
     if (el['log-drawer']) el['log-drawer'].hidden = true;
   }
 
+  function logCardMarkup(card) {
+    const suit = SUITS[card.suit] || SUITS.s;
+    return `<span class="mini-identity log-card ${suit.red ? 'red' : ''}" title="${esc(suit.name + card.rank)}">
+      <b>${esc(card.rank)}</b><span>${suit.symbol}</span>
+    </span>`;
+  }
+
+  /**
+   * 对局记录只保留“谁出了什么牌”：头像 + 牌面，无文字、无时间、不换行。
+   */
   function renderLog(room) {
     if (!room || el['log-drawer'].hidden) return;
-    const events = Array.isArray(room.events) ? room.events : [];
+    const events = (Array.isArray(room.events) ? room.events : []).filter(
+      (event) => event.type === 'play' || event.type === 'auto_play',
+    );
     if (events.length === 0) {
-      el['log-list'].innerHTML = '<li class="log-empty">暂无记录</li>';
+      el['log-list'].innerHTML = '<li class="log-empty">暂时还没有出牌记录</li>';
       return;
     }
-    el['log-list'].innerHTML = events.map((event) =>
-      `<li class="log-item ${esc(event.type)}"><span>${esc(event.text)}</span></li>`,
-    ).join('');
+    el['log-list'].innerHTML = events.map((event) => {
+      const player = playerAtSeat(event.seat);
+      const cards = Array.isArray(event.cards) ? event.cards : [];
+      return `<li class="log-item ${esc(event.type)}" data-seat="${event.seat}">
+        ${avatarMarkup(player, 'log-avatar')}
+        <div class="log-cards">${cards.map(logCardMarkup).join('')}</div>
+      </li>`;
+    }).join('');
     el['log-list'].scrollTop = el['log-list'].scrollHeight;
   }
 
@@ -3375,8 +4173,10 @@
     app.tributeKey = null;
     app.handSignature = '';
     app.pending = false;
+    clearResultPending();
     clearIdentityAlerts();
     hideReconnect();
+    resetAvatarStyles();
     setUrlRoom(null);
     closeModal('result');
     closeLog();
@@ -4793,6 +5593,13 @@
     updateSoundUi();
     updateFullscreenUi();
     updateStageScale();
+    // 竖屏首次加载先静默尝试一次锁横屏（无手势时通常会失败，失败保留 guard）。
+    attemptLandscapeLock();
+    if (app.avatar && !app.avatar.startsWith('data:image/')) {
+      app.avatar = '';
+      localStorage.removeItem(AVATAR_KEY);
+    }
+    updateAvatarPreview();
 
     el['name-input'].value = app.name;
     const params = new URLSearchParams(location.search);

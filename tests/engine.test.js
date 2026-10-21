@@ -172,28 +172,106 @@ test('出完牌的玩家仍保留最后一手，其余玩家继续跟牌；全�
   assert.equal(game.turnSeat, 1);
 });
 
-test('积分倍率作用于最终分数，而不是打出顺序', () => {
+test('本局积分是单一全局数字：底分 2、加分共享、倍率作用于最终', () => {
   const game = makeGame(seeded(41));
+  assert.equal(game.getRoundScore(), 2);
   game._applyScore(0, { type: 'straightflush', label: '同花顺' });
-  assert.equal(game.getRoundScore(0), 4);
-  game._applyScore(0, { type: 'trips', label: '三条' });
-  assert.equal(game.getRoundScore(0), 6);
+  assert.equal(game.getRoundScore(), 4);
+  game._applyScore(1, { type: 'trips', label: '三条' });
+  // 先同花顺后三条：(2 + 1) × 2 = 6。
+  assert.equal(game.getRoundScore(), 6);
+  const view = game.getView(0);
+  assert.equal(view.roundScore, 6);
+  assert.deepEqual(view.roundScores, [6, 6, 6, 6]);
+
+  // 两个同花顺：2 × 2 × 2 = 8。
+  const twoStraightFlushes = makeGame(seeded(41));
+  twoStraightFlushes._applyScore(0, { type: 'straightflush', label: '同花顺' });
+  twoStraightFlushes._applyScore(2, { type: 'straightflush', label: '同花顺' });
+  assert.equal(twoStraightFlushes.getRoundScore(), 8);
+
+  // 皇家同花顺 ×4，倍率乘在最终分上：(2 + 3) × 4 = 20。
+  const royal = makeGame(seeded(41));
+  royal._applyScore(3, { type: 'royal', label: '皇家同花顺' });
+  assert.equal(royal.getRoundScore(), 8);
+  royal._applyScore(1, { type: 'fullhouse', label: '三带二' });
+  assert.equal(royal.getRoundScore(), 20);
 });
 
-test('积分结算：输家扣分，奖池按赢家本场分比例分配', () => {
+test('积分结算：每个输家向每个赢家支付 S，同阵营等额且总和为 0', () => {
+  // S = 2、2v2：每个赢家收 2 个输家各 2 分 = +4，每个输家付 2 个赢家各 2 分 = -4。
+  const evenGame = makeGame(seeded(43));
+  evenGame.identitySeats = [0, 1];
+  evenGame.farmerSeats = [2, 3];
+  const even = evenGame._scoreDeltas('landlord');
+  assert.equal(even.roundScore, 2);
+  assert.deepEqual(even.deltas, [4, 4, -4, -4]);
+  assert.equal(even.deltas[0], even.deltas[1]);
+  assert.equal(even.deltas[2], even.deltas[3]);
+  assert.equal(even.deltas.reduce((sum, value) => sum + value, 0), 0);
+
   const game = makeGame(seeded(43));
   game.identitySeats = [0];
   game.farmerSeats = [1, 2, 3];
   const oneWinner = game._scoreDeltas('landlord');
-  assert.deepEqual(oneWinner.roundScores, [2, 2, 2, 2]);
+  assert.equal(oneWinner.roundScore, 2);
+  // 单人赢家：3 个输家各付 2，共 +6；输家各付 1×2 = -2。
   assert.deepEqual(oneWinner.deltas, [6, -2, -2, -2]);
   assert.equal(oneWinner.deltas.reduce((sum, value) => sum + value, 0), 0);
 
+  // S = 8 时：单人赢家 +3×8 = +24，3 个输家各 -(1×8) = -8。
+  game._applyScore(0, { type: 'royal', label: '皇家同花顺' });
+  const bigWinner = game._scoreDeltas('landlord');
+  assert.equal(bigWinner.roundScore, 8);
+  assert.deepEqual(bigWinner.deltas, [24, -8, -8, -8]);
+  assert.equal(bigWinner.deltas.reduce((sum, value) => sum + value, 0), 0);
+
+  // S = 8、2v2：赢家各 +2×8 = +16，输家各 -(2×8) = -16（同阵营相等）。
   game.identitySeats = [0, 1];
   game.farmerSeats = [2, 3];
   const twoWinners = game._scoreDeltas('landlord');
-  assert.deepEqual(twoWinners.deltas, [2, 2, -2, -2]);
+  assert.equal(twoWinners.roundScore, 8);
+  assert.deepEqual(twoWinners.deltas, [16, 16, -16, -16]);
+  assert.equal(twoWinners.deltas[0], twoWinners.deltas[1]);
+  assert.equal(twoWinners.deltas[2], twoWinners.deltas[3]);
   assert.equal(twoWinners.deltas.reduce((sum, value) => sum + value, 0), 0);
+
+  // S = 8、3 赢家 1 输家：赢家各 +1×8 = +8，输家 -(3×8) = -24（不再出现 3/3/2）。
+  game.identitySeats = [0];
+  game.farmerSeats = [1, 2, 3];
+  const threeWinners = game._scoreDeltas('farmers');
+  assert.equal(threeWinners.roundScore, 8);
+  assert.deepEqual(threeWinners.deltas, [-24, 8, 8, 8]);
+  assert.equal(threeWinners.deltas[1], threeWinners.deltas[2]);
+  assert.equal(threeWinners.deltas[2], threeWinners.deltas[3]);
+  assert.equal(threeWinners.deltas.reduce((sum, value) => sum + value, 0), 0);
+
+  // 平局全 0。
+  const draw = game._scoreDeltas('draw');
+  assert.deepEqual(draw.deltas, [0, 0, 0, 0]);
+});
+
+test('零和结算：个人累计逐局相加，整桌总分守恒', () => {
+  const game = makeGame(seeded(47));
+  const totals = [0, 0, 0, 0];
+  const rounds = [
+    { winner: 'landlord', identitySeats: [0], farmerSeats: [1, 2, 3] },
+    { winner: 'farmers', identitySeats: [0, 1], farmerSeats: [2, 3] },
+    { winner: 'draw', identitySeats: [1, 2], farmerSeats: [0, 3] },
+  ];
+  for (const round of rounds) {
+    game.identitySeats = [...round.identitySeats];
+    game.farmerSeats = [...round.farmerSeats];
+    const { deltas, roundScore } = game._scoreDeltas(round.winner);
+    assert.equal(roundScore, 2);
+    assert.equal(deltas.reduce((sum, value) => sum + value, 0), 0);
+    deltas.forEach((delta, seat) => {
+      totals[seat] += delta;
+    });
+  }
+  // 第 1 局地主 +6/-2/-2/-2；第 2 局 2v2 农民 +4/+4/-4/-4；第 3 局平局。
+  assert.deepEqual(totals, [2, -6, 2, 2]);
+  assert.equal(totals.reduce((sum, value) => sum + value, 0), 0);
 });
 
 test('借风：身份全明后，出完牌者的队友接管领出', () => {
@@ -342,6 +420,9 @@ test('随机自动对局可以正常结束，且公开信息不泄露身份', ()
     assert.ok(game.result);
     assert.ok(['landlord', 'farmers', 'draw'].includes(game.result.winner));
     assert.ok(game.result.rankings.length >= 1);
+    assert.equal(typeof game.result.roundScore, 'number');
+    assert.ok(game.result.roundScore >= 2);
+    assert.equal(game.result.scoreDeltas.reduce((sum, value) => sum + value, 0), 0);
     const allIdentityCards = game.result.identities
       .flatMap((entry) => entry.cards.map((card) => card.id))
       .sort();

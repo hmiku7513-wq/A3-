@@ -9,7 +9,7 @@ const { randomUUID, randomBytes } = require('node:crypto');
 const { attachWebSocket } = require('./lib/websocket');
 const { A3Game, GameError } = require('./lib/engine');
 const { TributeRound, TributeError } = require('./lib/tribute');
-const { cardPower, isIdentityCard } = require('./lib/cards');
+const { cardPower, isIdentityCard, publicCard } = require('./lib/cards');
 
 const PORT = Number(process.env.PORT || 3213);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -30,6 +30,15 @@ const MAX_TURN_SECONDS = 30;
 const DEFAULT_TRIBUTE_SECONDS = 30;
 const MIN_TRIBUTE_SECONDS = 15;
 const MAX_TRIBUTE_SECONDS = 60;
+// 头像:客户端压到约 100KB,服务端上限 140KB(须小于 websocket 单帧 256KB 上限)。
+const MAX_AVATAR_DATA_URL_LENGTH = 140 * 1024;
+const AVATAR_DATA_URL_PATTERN =
+  /^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/]+={0,2}$/i;
+// 表情:通用 emoji + 定向送花/砸蛋(菜篮子),同一玩家 3 秒冷却(与客户端 3s 动画一致)。
+const EMOTE_KINDS = new Set(['emoji', 'flower', 'egg']);
+const EMOTE_RATE_LIMIT_MS = 3_000;
+const MAX_EMOJI_CODE_POINTS = 4;
+const EMOJI_CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 const rooms = new Map();
 const sockets = new Set();
@@ -39,6 +48,7 @@ const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.ico': 'image/x-icon',
@@ -166,6 +176,7 @@ function roomSummaryPlayers(room) {
       connected: Boolean(player.connected),
       isBot: Boolean(player.isBot),
       autoPlay: Boolean(player.autoPlay),
+      avatar: player.avatar || null,
       isHost: player.id === room.hostId,
     }));
 }
@@ -195,10 +206,17 @@ function buildLobbyState(room, viewer) {
       tributeEnabled: Boolean(room.tributeEnabled),
       counterEnabled: Boolean(room.counterEnabled),
       borrowWindEnabled: Boolean(room.borrowWindEnabled),
-      scoringEnabled: room.scoringEnabled !== false,
+      scoringEnabled: true,
       turnSeconds: room.turnSeconds,
       tributeSeconds: room.tributeSeconds,
       canEditSettings: viewer.id === room.hostId,
+      // 积分:roundScore 是最近一局的本局全局积分 S,scores 是每位玩家个人累计。
+      roundScore: Number(room.roundScore || 0),
+      scores: [...(room.scores || [0, 0, 0, 0])],
+      yourScore: Number(room.scores?.[viewer.seat] || 0),
+      // 旧字段兼容:sharedScore 不再累计,等同于最近一局 S。
+      sharedScore: Number(room.roundScore || 0),
+      sharedScoreDelta: room.sharedScoreDelta ?? null,
       players: roomSummaryPlayers(room),
       serverNow: Date.now(),
     },
@@ -344,19 +362,69 @@ function scheduleAuto(room) {
   }, delay);
 }
 
+/**
+ * 每局结算只落一次:
+ * - 引擎给出本局全局积分 S(roundScore)与零和 scoreDeltas;
+ * - room.scores 保存每位玩家的个人累计积分,跨局保留(新房间为 0);
+ * - room.roundScore 保存本局 S;
+ * - 积分规则永久开启,不再有 scoringEnabled 关闭分支;
+ * - sharedScore / sharedScoreDelta 仅为旧客户端保留的兼容别名,不再累计。
+ * scoreAppliedRound 用于幂等,重复 build 状态不会重复结算。
+ */
 function finalizeScores(room) {
-  if (!room.scoringEnabled || !room.game?.result) return;
+  if (!room.game?.result) return;
   if (room.scoreAppliedRound === room.round) return;
-  const deltas = room.game.result.scoreDeltas || [0, 0, 0, 0];
+  room.scoringEnabled = true;
+  const result = room.game.result;
+  const roundScore = Number(result.roundScore || 0);
+  const deltas = Array.isArray(result.scoreDeltas) ? result.scoreDeltas : [0, 0, 0, 0];
   room.scores = room.scores || [0, 0, 0, 0];
+  let sharedDelta = 0;
   for (let seat = 0; seat < 4; seat += 1) {
-    room.scores[seat] = Number(room.scores[seat] || 0) + Number(deltas[seat] || 0);
+    const delta = Number(deltas[seat] || 0);
+    room.scores[seat] = Number(room.scores[seat] || 0) + delta;
+    if (delta > 0) sharedDelta += delta;
   }
+  room.roundScore = roundScore;
+  // 兼容旧字段:不再累计,直接等于本局 S / 本局奖池。
+  room.sharedScore = roundScore;
+  room.sharedScoreDelta = sharedDelta;
   room.scoreAppliedRound = room.round;
 }
 
+const RESULT_ACTION_EVENT_TYPES = new Set([
+  'play',
+  'auto_play',
+  'pass',
+  'auto_pass',
+  'trick',
+]);
+
+/**
+ * 最后一手含身份牌(黑桃 A / 黑桃 3)并直接导致结束时,给客户端一个
+ * 延迟结算信号,让它先播完身份牌揭晓动画;游戏状态照常立即广播。
+ */
+function identityFinishingInfo(game) {
+  if (!game || game.phase !== 'ended' || !game.result) return null;
+  const events = Array.isArray(game.events) ? game.events : [];
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type === 'end') continue;
+    if (!RESULT_ACTION_EVENT_TYPES.has(event.type)) continue;
+    if (event.type !== 'play' && event.type !== 'auto_play') return null;
+    const cards = Array.isArray(event.cards) ? event.cards : [];
+    const identityCards = cards.filter((card) => isIdentityCard(card));
+    if (identityCards.length === 0) return null;
+    return {
+      seat: event.seat,
+      cards: identityCards.map((card) => publicCard(card)),
+    };
+  }
+  return null;
+}
+
 function buildGameState(room, viewer) {
-  if (room.phase === 'ended') finalizeScores(room);
+  if (room.phase === 'ended' || room.game?.phase === 'ended') finalizeScores(room);
   const game = room.game;
   const view = game.getView(viewer.seat);
   const { remainingCounts: ignoredRemaining, ...publicView } = view;
@@ -372,6 +440,7 @@ function buildGameState(room, viewer) {
       isYou: member?.id === viewer.id,
       isBot: Boolean(member?.isBot),
       autoPlay: Boolean(member?.autoPlay),
+      avatar: member?.avatar || null,
     };
   });
 
@@ -389,6 +458,8 @@ function buildGameState(room, viewer) {
           at: room.auto.at,
         }
       : null;
+
+  const identityFinishing = identityFinishingInfo(room.game);
 
   return {
     type: 'state',
@@ -408,10 +479,15 @@ function buildGameState(room, viewer) {
       tributeEnabled: Boolean(room.tributeEnabled),
       counterEnabled: Boolean(room.counterEnabled),
       borrowWindEnabled: Boolean(room.borrowWindEnabled),
-      scoringEnabled: room.scoringEnabled !== false,
+      scoringEnabled: true,
+      // 积分:roundScore 是整桌共用的本局 S(随任意玩家出牌更新),scores 是每位玩家个人累计。
+      roundScore: Number(publicView.roundScore ?? room.roundScore ?? 0),
       scores: [...(room.scores || [0, 0, 0, 0])],
       yourScore: Number(room.scores?.[viewer.seat] || 0),
       roundScores: publicView.roundScores || [2, 2, 2, 2],
+      // 旧字段兼容:sharedScore 不再累计,等于当前本局 S。
+      sharedScore: Number(publicView.roundScore ?? room.roundScore ?? 0),
+      sharedScoreDelta: room.sharedScoreDelta ?? null,
       borrowWindVotes: room.borrowWindVotes
         ? {
             on: [...room.borrowWindVotes.values()].filter(Boolean).length,
@@ -441,13 +517,24 @@ function buildGameState(room, viewer) {
       result: publicView.result
         ? {
             ...publicView.result,
-            scoreDeltas: room.scoringEnabled !== false
-              ? (publicView.result.scoreDeltas || [0, 0, 0, 0])
-              : null,
-            scoreTotals: room.scoringEnabled !== false
-              ? [...(room.scores || [0, 0, 0, 0])]
-              : null,
-            roundScores: publicView.result.roundScores || publicView.roundScores || [2, 2, 2, 2],
+            // 积分永久开启:始终返回每局变化与个人累计。
+            scoreDeltas: publicView.result.scoreDeltas || [0, 0, 0, 0],
+            scoreTotals: [...(room.scores || [0, 0, 0, 0])],
+            // 本局全局积分 S + 兼容旧字段。
+            roundScore: Number(
+              publicView.result.roundScore ?? publicView.roundScore ?? room.roundScore ?? 0,
+            ),
+            roundScores: publicView.result.roundScores ||
+              publicView.roundScores ||
+              [2, 2, 2, 2],
+            sharedScore: Number(
+              publicView.result.roundScore ?? publicView.roundScore ?? room.roundScore ?? 0,
+            ),
+            sharedScoreDelta: Number(room.sharedScoreDelta || 0),
+            // 最后一手含身份牌导致结束时,客户端先播完身份揭晓再弹结算。
+            identityFinishing: Boolean(identityFinishing),
+            identityFinishingSeat: identityFinishing?.seat ?? null,
+            identityFinishingCards: identityFinishing?.cards || [],
           }
         : null,
       serverNow: Date.now(),
@@ -468,6 +555,7 @@ function buildTributeState(room, viewer) {
       isYou: member?.id === viewer.id,
       isBot: Boolean(member?.isBot),
       autoPlay: Boolean(member?.autoPlay),
+      avatar: member?.avatar || null,
     };
   });
 
@@ -482,6 +570,14 @@ function buildTributeState(room, viewer) {
       youSeat: viewer.seat,
       round: room.round,
       tributeEnabled: Boolean(room.tributeEnabled),
+      // 积分规则永久开启。
+      scoringEnabled: true,
+      // 供牌阶段新一局尚未发牌,先沿用上一局 S;开局后由 game view 提供实时 S。
+      roundScore: Number(room.roundScore || 0),
+      scores: [...(room.scores || [0, 0, 0, 0])],
+      yourScore: Number(room.scores?.[viewer.seat] || 0),
+      sharedScore: Number(room.roundScore || 0),
+      sharedScoreDelta: room.sharedScoreDelta ?? null,
       ...view,
       players,
       tributeSeconds: room.tributeSeconds,
@@ -642,6 +738,17 @@ function broadcastGame(room) {
   }
 }
 
+/** 按当前阶段给整桌推送对应状态(头像等非牌局数据更新时复用)。 */
+function broadcastRoomState(room) {
+  if (room.phase === 'lobby') {
+    broadcastLobby(room);
+  } else if (room.phase === 'tribute' && room.tribute) {
+    broadcastTribute(room);
+  } else if (room.game) {
+    broadcastGame(room);
+  }
+}
+
 function resetReady(room) {
   for (const player of room.players) player.ready = player.id === room.hostId;
 }
@@ -729,6 +836,10 @@ function removePlayer(room, player) {
   clearDisconnectTimer(player);
   const index = room.players.findIndex((entry) => entry.id === player.id);
   if (index === -1) return;
+  // 个人累计积分跟人走、不跟座位走：压缩座位前先按玩家 id 暂存。
+  const scoreByPlayerId = new Map(
+    room.players.map((entry) => [entry.id, Number(room.scores?.[entry.seat] || 0)]),
+  );
   room.players.splice(index, 1);
   if (room.hostId === player.id) {
     room.hostId = room.players.find((entry) => entry.connected)?.id || room.players[0]?.id || null;
@@ -738,6 +849,11 @@ function removePlayer(room, player) {
   room.players.forEach((entry, seat) => {
     entry.seat = seat;
   });
+  if (room.scores) {
+    const remapped = room.players.map((entry) => scoreByPlayerId.get(entry.id) || 0);
+    while (remapped.length < 4) remapped.push(0);
+    room.scores = remapped;
+  }
 
   if (room.phase === 'ended') {
     // 有人在结算后离开，剩余玩家回到大厅等待新玩家，避免出现不存在的“残局”。
@@ -829,6 +945,7 @@ function handleCreate(ws, message) {
     ws,
     isBot: false,
     autoPlay: false,
+    avatar: null,
     disconnectTimer: null,
     lastSeen: Date.now(),
   };
@@ -846,6 +963,9 @@ function handleCreate(ws, message) {
     borrowWindVotes: new Map(),
     scoringEnabled: true,
     scores: [0, 0, 0, 0],
+    roundScore: 0,
+    sharedScore: 0,
+    sharedScoreDelta: null,
     scoreAppliedRound: null,
     turnSeconds: DEFAULT_TURN_SECONDS,
     tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
@@ -890,6 +1010,7 @@ function handleSingle(ws, message) {
     ws,
     isBot: false,
     autoPlay: false,
+    avatar: null,
     disconnectTimer: null,
     lastSeen: Date.now(),
   };
@@ -904,6 +1025,7 @@ function handleSingle(ws, message) {
     ws: null,
     isBot: true,
     autoPlay: true,
+    avatar: null,
     disconnectTimer: null,
     lastSeen: Date.now(),
   }));
@@ -921,6 +1043,9 @@ function handleSingle(ws, message) {
     borrowWindVotes: new Map(),
     scoringEnabled: true,
     scores: [0, 0, 0, 0],
+    roundScore: 0,
+    sharedScore: 0,
+    sharedScoreDelta: null,
     scoreAppliedRound: null,
     turnSeconds: DEFAULT_TURN_SECONDS,
     tributeSeconds: DEFAULT_TRIBUTE_SECONDS,
@@ -1016,6 +1141,9 @@ function handleJoin(ws, message) {
     ready: false,
     connected: true,
     ws,
+    isBot: false,
+    autoPlay: false,
+    avatar: null,
     disconnectTimer: null,
     lastSeen: Date.now(),
   };
@@ -1068,7 +1196,8 @@ function handleSettings(ws, message) {
     room.borrowWindEnabled = Boolean(message.borrowWindEnabled);
   }
   if (Object.prototype.hasOwnProperty.call(message, 'scoringEnabled')) {
-    room.scoringEnabled = Boolean(message.scoringEnabled);
+    // 积分规则已全局永久开启:忽略关闭请求,但保留字段兼容不报错。
+    log(`room ${room.code}: scoringEnabled is permanently on, ignoring setting=${message.scoringEnabled}`);
   }
   if (Object.prototype.hasOwnProperty.call(message, 'turnSeconds')) {
     room.turnSeconds = clampInteger(
@@ -1086,6 +1215,7 @@ function handleSettings(ws, message) {
       DEFAULT_TRIBUTE_SECONDS,
     );
   }
+  room.scoringEnabled = true;
   touch(room);
   if (room.phase === 'lobby') broadcastLobby(room);
   else broadcastGame(room);
@@ -1118,11 +1248,68 @@ function handleBorrowWindVote(ws, message) {
   log(`room ${room.code}: borrow wind vote ${player.name}=${Boolean(message.enabled)} enabled=${room.borrowWindEnabled}`);
 }
 
+/**
+ * 房主踢人:
+ * - 大厅 / 结算页可踢,被踢玩家收到 kicked 消息并被断开连接;
+ * - 对局 / 供牌中不允许踢人,由房主改用托管或等本局结束。
+ */
+function handleKick(ws, message) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  if (player.id !== room.hostId) {
+    sendError(ws, '只有房主能踢人哦！', 'NOT_HOST');
+    return;
+  }
+  const target = playerById(room, typeof message.playerId === 'string' ? message.playerId : '');
+  if (!target) {
+    sendError(ws, '这名玩家已经不在房间啦！', 'PLAYER_NOT_FOUND');
+    return;
+  }
+  if (target.id === player.id) {
+    sendError(ws, '不能把自己踢出房间哦！', 'CANNOT_KICK_SELF');
+    return;
+  }
+  if (room.singlePlayer) {
+    sendError(ws, '单机牌桌不能踢人哦！', 'SINGLE_PLAYER_ONLY');
+    return;
+  }
+  if (room.phase === 'playing' || room.phase === 'tribute') {
+    sendError(ws, '对局中不能踢人，等这局结算或回到大厅再踢吧！', 'KICK_IN_GAME');
+    return;
+  }
+
+  const kickedWs = target.ws;
+  if (kickedWs) {
+    send(kickedWs, {
+      type: 'kicked',
+      roomCode: room.code,
+      playerId: target.id,
+      name: target.name,
+      byId: player.id,
+      byName: player.name,
+      at: Date.now(),
+      reason: '你被房主请出了房间。',
+    });
+    kickedWs.session = null;
+  }
+  removePlayer(room, target);
+  if (kickedWs) {
+    try {
+      kickedWs.close(4003, 'kicked');
+    } catch {
+      // ignore
+    }
+  }
+  log(`room ${room.code}: ${player.name} kicked ${target.name}`);
+}
+
 function handleTrust(ws, message) {
   const context = socketContext(ws);
   if (!context) return;
   const { room, player } = context;
   if (player.isBot) return;
+  // 单人房、联机房都走同一套:玩家自己切换自己的托管,机器人永远托管。
   if (room.phase !== 'playing' && room.phase !== 'tribute') {
     sendError(ws, '开局后才能托管哦～', 'BAD_PHASE');
     return;
@@ -1134,6 +1321,132 @@ function handleTrust(ws, message) {
   if (room.phase === 'tribute') broadcastTribute(room);
   else broadcastGame(room);
   log(`room ${room.code}: ${player.name} autoPlay=${player.autoPlay}`);
+}
+
+/**
+ * 表情协议:
+ * - {type:'emote', kind:'emoji', emoji:'😀'} 顶栏通用 emoji(最多 4 个码点);
+ * - {type:'emote', kind:'flower'|'egg', targetSeat:N} 菜篮子定向送花/砸蛋,
+ *   targetSeat 必须是其他玩家有效座位;缺省时兼容旧客户端,默认对家;
+ * - 广播给整桌在线玩家,同一玩家 3 秒冷却(超频静默丢弃);
+ * - 单机/联机均可用,机器人永远不会发送。
+ */
+function handleEmote(ws, message) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  if (player.isBot) return;
+
+  const kind = typeof message.kind === 'string' ? message.kind : '';
+  if (!EMOTE_KINDS.has(kind)) {
+    sendError(ws, '表情类型不对哦！', 'BAD_EMOTE_KIND');
+    return;
+  }
+
+  let emoji = null;
+  let targetSeat = null;
+  let targetName = null;
+
+  if (kind === 'emoji') {
+    emoji = typeof message.emoji === 'string' ? message.emoji.trim() : '';
+    if (
+      !emoji ||
+      EMOJI_CONTROL_CHARS.test(emoji) ||
+      Array.from(emoji).length > MAX_EMOJI_CODE_POINTS
+    ) {
+      sendError(ws, '这个 emoji 不太对哦，最多 4 个字符！', 'BAD_EMOJI');
+      return;
+    }
+  } else {
+    // 送花/砸蛋属于对局内互动。
+    if (!['playing', 'tribute', 'ended'].includes(room.phase)) {
+      sendError(ws, '现在还不能送花/砸蛋哦！', 'BAD_PHASE');
+      return;
+    }
+    const rawTarget = message.targetSeat;
+    const hasTarget = rawTarget !== undefined && rawTarget !== null && rawTarget !== '';
+    if (hasTarget) {
+      if (typeof rawTarget !== 'number' && typeof rawTarget !== 'string') {
+        sendError(ws, '送花/砸蛋的目标不对哦！', 'BAD_EMOTE_TARGET');
+        return;
+      }
+      const parsed = Number(rawTarget);
+      if (!Number.isInteger(parsed)) {
+        sendError(ws, '送花/砸蛋的目标不对哦！', 'BAD_EMOTE_TARGET');
+        return;
+      }
+      targetSeat = parsed;
+    } else {
+      // 兼容旧客户端:没有 targetSeat 时默认对家。
+      targetSeat = (player.seat + 2) % 4;
+    }
+    const target = room.players.find((entry) => entry.seat === targetSeat) || null;
+    if (!target || target.id === player.id) {
+      sendError(ws, '只能把花或蛋送给其他玩家哦！', 'BAD_EMOTE_TARGET');
+      return;
+    }
+    targetSeat = target.seat;
+    targetName = target.name;
+  }
+
+  // 3 秒冷却:超频静默丢弃,避免错误提示刷屏。
+  const now = Date.now();
+  if (player.lastEmoteAt && now - player.lastEmoteAt < EMOTE_RATE_LIMIT_MS) return;
+  player.lastEmoteAt = now;
+
+  const payload = {
+    type: 'emote',
+    kind,
+    emoji,
+    seat: player.seat,
+    name: player.name,
+    id: randomUUID(),
+    playerId: player.id,
+    at: now,
+    targetSeat,
+    targetName,
+  };
+  for (const member of room.players) {
+    if (!member.ws || !member.connected) continue;
+    send(member.ws, payload);
+  }
+}
+
+/**
+ * 头像:只接受 data:image/(png|jpeg|webp|gif);base64,...,
+ * 上限 140KB(客户端压到约 100KB);空字符串 / null 表示清除。
+ */
+function handleAvatar(ws, message) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  const raw = message.dataUrl;
+  let avatar = null;
+
+  if (raw !== undefined && raw !== null && raw !== '') {
+    if (typeof raw !== 'string') {
+      sendError(ws, '头像格式不支持哦，请用图片文件。', 'BAD_AVATAR');
+      return;
+    }
+    const dataUrl = raw.trim();
+    if (dataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
+      sendError(ws, '头像太大了，压缩后再试试吧！', 'AVATAR_TOO_LARGE');
+      return;
+    }
+    if (dataUrl.length > 0) {
+      if (!AVATAR_DATA_URL_PATTERN.test(dataUrl)) {
+        sendError(ws, '头像格式不支持哦，请用图片文件。', 'BAD_AVATAR');
+        return;
+      }
+      avatar = dataUrl;
+    }
+  }
+
+  if ((player.avatar || null) === avatar) return;
+  player.avatar = avatar;
+  touch(room);
+  broadcastRoomState(room);
+  log(`room ${room.code}: ${player.name} avatar ${avatar ? 'updated' : 'cleared'}`);
 }
 
 function handleStart(ws) {
@@ -1388,6 +1701,15 @@ function handleMessage(ws, text) {
       break;
     case 'trust':
       handleTrust(ws, message);
+      break;
+    case 'emote':
+      handleEmote(ws, message);
+      break;
+    case 'avatar':
+      handleAvatar(ws, message);
+      break;
+    case 'kick':
+      handleKick(ws, message);
       break;
     case 'borrow_wind':
       handleBorrowWindVote(ws, message);
