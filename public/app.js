@@ -2306,7 +2306,7 @@
       const request = target.requestFullscreen || target.webkitRequestFullscreen;
       if (!request) {
         showToast('这个浏览器不支持全屏，试试复制链接到手机浏览器打开！', 'error');
-        return;
+        return false;
       }
       await request.call(target);
       if (screen.orientation?.lock) {
@@ -2318,8 +2318,10 @@
       }
     } catch {
       showToast('全屏没成功，复制链接到手机浏览器再试一次吧！', 'error');
+      return false;
     }
     updateFullscreenUi();
+    return true;
   }
 
   function openFullscreenTip() {
@@ -2352,7 +2354,10 @@
       return;
     }
     if (isTouchUi()) {
-      openFullscreenTip();
+      // Real fullscreen from the tap gesture: this asks the mobile browser to
+      // enter its immersive fullscreen mode and hide the address/action bars.
+      const entered = await enterFullscreen();
+      if (!entered) openFullscreenTip();
       return;
     }
     await enterFullscreen();
