@@ -230,59 +230,129 @@ async function main() {
     );
     console.log('avatar: compressed, previewed and stored');
 
-    // Tutorial: a playable simulated match. Basic turns auto-select the target cards,
-    // the player confirms with the play button; the free phase adds timer/hint/skip.
+    // Tutorial: playable basic match → checkpoint (continue/exit) → optional rules → free phase.
+    const runTutorialBasicToCheckpoint = async (label) => {
+      const stats = { autoSelect: false, playClicks: 0 };
+      for (let step = 0; step < 200; step += 1) {
+        const state = await pages[0].cdp.evaluate(`(() => ({
+          playVisible: !document.getElementById('tutorial-play-btn').hidden,
+          playDisabled: document.getElementById('tutorial-play-btn').disabled,
+          timerVisible: !document.getElementById('tutorial-timer').hidden,
+          hintVisible: !document.getElementById('tutorial-hint-btn').hidden,
+          popupConfirm: !document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-pop-close]'),
+          checkpoint: !document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-exit]'),
+          selected: document.querySelectorAll('#tutorial-match-hand .tutorial-card-face.selected').length,
+          resultVisible: !document.getElementById('tutorial-result-panel').hidden,
+        }))()`);
+        if (state.resultVisible) break;
+        if (state.checkpoint) break;
+        if (state.popupConfirm) {
+          await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-pop-close]').click()");
+          await sleep(160);
+          continue;
+        }
+        if (state.playVisible && !state.playDisabled) {
+          if (state.timerVisible || state.hintVisible) {
+            throw new Error('basic tutorial should not show timer/hint');
+          }
+          if (state.selected > 0) stats.autoSelect = true;
+          await pages[0].cdp.evaluate("document.getElementById('tutorial-play-btn').click()");
+          stats.playClicks += 1;
+          await sleep(180);
+          continue;
+        }
+        await sleep(120);
+      }
+      await pages[0].cdp.waitFor(
+        "!document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-exit]')",
+        6000,
+        `${label}: checkpoint`,
+      );
+      return stats;
+    };
+
+    const assertTutorialCheckpoint = async (label) => {
+      const checkpoint = await pages[0].cdp.evaluate(`(() => ({
+        buttons: [...document.querySelectorAll('#tutorial-scene-actions button')].map((node) => node.textContent.trim()),
+        rulesOpenButton: !!document.querySelector('#tutorial-scene-actions [data-tutorial-rules-open]'),
+        rulesBtnVisible: !document.getElementById('tutorial-rules-btn').hidden,
+      }))()`);
+      if (!checkpoint.buttons.includes('继续完成对局')) {
+        throw new Error(`${label}: checkpoint missing 继续完成对局 (${checkpoint.buttons.join(',')})`);
+      }
+      if (!checkpoint.buttons.includes('退出教程')) {
+        throw new Error(`${label}: checkpoint missing 退出教程 (${checkpoint.buttons.join(',')})`);
+      }
+      if (checkpoint.rulesOpenButton) throw new Error(`${label}: checkpoint should not contain 查看可选规则`);
+      if (!checkpoint.rulesBtnVisible) throw new Error(`${label}: topbar 可选规则 should be available`);
+    };
+
     await pages[0].cdp.evaluate("document.getElementById('home-tutorial-btn').click()");
     await pages[0].cdp.waitFor(
       "!document.getElementById('tutorial-match').hidden && document.querySelectorAll('#tutorial-seats .tutorial-seat').length === 4",
       4000,
       'tutorial match open with four seats',
     );
-    let tutorialAutoSelectSeen = false;
-    let tutorialPlayClicks = 0;
-    for (let step = 0; step < 200; step += 1) {
-      const state = await pages[0].cdp.evaluate(`(() => ({
-        rulesReady: !document.getElementById('tutorial-rules-btn').hidden,
-        playVisible: !document.getElementById('tutorial-play-btn').hidden,
-        playDisabled: document.getElementById('tutorial-play-btn').disabled,
-        timerVisible: !document.getElementById('tutorial-timer').hidden,
-        hintVisible: !document.getElementById('tutorial-hint-btn').hidden,
-        popupConfirm: !document.getElementById('tutorial-rule-pop').hidden && !!document.querySelector('[data-tutorial-pop-close]'),
-        selected: document.querySelectorAll('#tutorial-match-hand .tutorial-card-face.selected').length,
-        resultVisible: !document.getElementById('tutorial-result-panel').hidden,
-      }))()`);
-      if (state.resultVisible) break;
-      if (state.popupConfirm) {
-        await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-pop-close]').click()");
-        await sleep(160);
-        continue;
-      }
-      if (state.rulesReady && !state.playVisible) break;
-      if (state.playVisible && !state.playDisabled) {
-        if (state.timerVisible || state.hintVisible) {
-          throw new Error('basic tutorial should not show timer/hint');
-        }
-        if (state.selected > 0) tutorialAutoSelectSeen = true;
-        await pages[0].cdp.evaluate("document.getElementById('tutorial-play-btn').click()");
-        tutorialPlayClicks += 1;
-        await sleep(180);
-        continue;
-      }
-      await sleep(120);
-    }
-    if (!tutorialAutoSelectSeen) throw new Error('basic tutorial did not auto-select target cards');
-    if (!tutorialPlayClicks) throw new Error('basic tutorial player never clicked play');
-    await pages[0].cdp.waitFor("!document.getElementById('tutorial-rules-btn').hidden", 5000, 'optional rules unlocked');
-    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-basic.png'));
+    const firstTutorialRun = await runTutorialBasicToCheckpoint('tutorial first run');
+    if (!firstTutorialRun.autoSelect) throw new Error('basic tutorial did not auto-select target cards');
+    if (!firstTutorialRun.playClicks) throw new Error('basic tutorial player never clicked play');
+    await assertTutorialCheckpoint('tutorial first run');
+    await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-checkpoint.png'));
+
+    // Exit tutorial from the checkpoint returns to the landing screen.
+    await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-exit]').click()");
+    await pages[0].cdp.waitFor("document.getElementById('tutorial-match').hidden", 3000, 'tutorial exit closes');
+    const tutorialExitLanded = await pages[0].cdp.evaluate(
+      "document.getElementById('screen-landing').classList.contains('is-active')",
+    );
+    if (!tutorialExitLanded) throw new Error('exit tutorial should return to landing screen');
+
+    // Re-enter and reach the checkpoint again, then continue through optional rules into free play.
+    await pages[0].cdp.evaluate("document.getElementById('home-tutorial-btn').click()");
+    await pages[0].cdp.waitFor(
+      "!document.getElementById('tutorial-match').hidden && document.querySelectorAll('#tutorial-seats .tutorial-seat').length === 4",
+      4000,
+      'tutorial re-opened',
+    );
+    const secondTutorialRun = await runTutorialBasicToCheckpoint('tutorial second run');
+    if (!secondTutorialRun.playClicks) throw new Error('second tutorial run never reached checkpoint');
+    await assertTutorialCheckpoint('tutorial second run');
 
     await pages[0].cdp.evaluate("document.getElementById('tutorial-rules-btn').click()");
     await pages[0].cdp.waitFor("!document.getElementById('tutorial-rules-sheet').hidden", 3000, 'optional rules sheet');
-    for (const rule of ['tribute', 'borrow', 'scoring']) {
+    const tutorialRulesInfo = await pages[0].cdp.evaluate(`(() => ({
+      rules: [...document.querySelectorAll('#tutorial-rules-sheet [data-tutorial-rule]')].map((node) => node.dataset.tutorialRule),
+      hasScoringRule: !!document.querySelector('#tutorial-rules-sheet [data-tutorial-rule="scoring"]'),
+      progress: document.getElementById('tutorial-rule-detail').textContent,
+    }))()`);
+    if (tutorialRulesInfo.rules.length !== 2 || tutorialRulesInfo.rules.join(',') !== 'tribute,borrow') {
+      throw new Error(`optional rules should only be tribute/borrow, got ${tutorialRulesInfo.rules.join(',')}`);
+    }
+    if (tutorialRulesInfo.hasScoringRule) throw new Error('optional rules should not contain scoring');
+    if (!tutorialRulesInfo.progress.includes('供牌') || !tutorialRulesInfo.progress.includes('借风')) {
+      throw new Error(`optional rules progress should mention 供牌/借风, got ${tutorialRulesInfo.progress}`);
+    }
+    if (tutorialRulesInfo.progress.includes('积分')) throw new Error('optional rules progress should not mention 积分');
+    for (const rule of ['tribute', 'borrow']) {
       await pages[0].cdp.evaluate(`document.querySelector('[data-tutorial-rule="${rule}"]').click()`);
     }
     await pages[0].cdp.waitFor("!document.getElementById('tutorial-rule-actions').hidden", 3000, 'optional rules done');
+    const tutorialRulesDone = await pages[0].cdp.evaluate(`(() => ({
+      detail: document.getElementById('tutorial-rule-detail').textContent,
+      actions: [...document.querySelectorAll('#tutorial-rule-actions button')].map((node) => node.textContent.trim()),
+    }))()`);
+    if (!tutorialRulesDone.detail.includes('两条')) {
+      throw new Error(`optional rules done text mismatch: ${tutorialRulesDone.detail}`);
+    }
+    if (tutorialRulesDone.detail.includes('积分')) throw new Error('optional rules should not mention 积分');
+    if (!tutorialRulesDone.actions.includes('结束教程') || !tutorialRulesDone.actions.includes('继续完成对局')) {
+      throw new Error(`optional rules actions missing: ${tutorialRulesDone.actions.join(',')}`);
+    }
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-tutorial-rules.png'));
-    await pages[0].cdp.evaluate("document.querySelector('[data-tutorial-continue]').click()");
+    // 关闭二级页后回到 checkpoint，再用 checkpoint 的“继续完成对局”进入 free。
+    await pages[0].cdp.evaluate("document.getElementById('tutorial-rules-close').click()");
+    await pages[0].cdp.waitFor("document.getElementById('tutorial-rules-sheet').hidden", 3000, 'optional rules closed');
+    await pages[0].cdp.evaluate("document.querySelector('#tutorial-scene-actions [data-tutorial-continue]').click()");
     await pages[0].cdp.waitFor(`(() => {
       const timer = document.getElementById('tutorial-timer');
       const hint = document.getElementById('tutorial-hint-btn');
@@ -495,21 +565,32 @@ async function main() {
     await sleep(600);
     console.log('emoji: picker, bubble, 3s lock/unlock ok');
 
-    // Gift: another player's basket → flower → fly → bloom → 3s cleanup.
+    // Gift: another player's basket → flower → 750ms fly → 1500ms bloom → cleanup.
     await pages[0].cdp.evaluate("document.querySelector('.game-stage .player-pod .gift-basket-btn').click()");
     await pages[0].cdp.waitFor("!document.getElementById('gift-menu').hidden", 3000, 'gift menu open');
     const giftTargetSeat = await pages[0].cdp.evaluate("document.getElementById('gift-menu').dataset.seat");
     if (!/^[0-9]$/.test(String(giftTargetSeat || ''))) throw new Error(`bad gift target seat: ${giftTargetSeat}`);
+    const flowerGiftStartedAt = Date.now();
     await pages[0].cdp.evaluate("document.querySelector('#gift-menu [data-gift=\"flower\"]').click()");
-    await pages[0].cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly').length > 0", 3000, 'gift fly');
-    await pages[0].cdp.waitFor("document.querySelectorAll('#emote-layer .gift-bloom').length > 0", 4000, 'gift bloom');
+    await pages[0].cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly.flower').length > 0", 3000, 'gift fly');
+    await sleep(750);
+    const flowerLanding = await pages[0].cdp.evaluate(
+      "document.querySelectorAll('#emote-layer .gift-bloom').length > 0",
+    );
+    if (!flowerLanding) throw new Error('gift bloom should appear after the 750ms flight');
+    const flowerBloomDelay = Date.now() - flowerGiftStartedAt;
+    if (flowerBloomDelay > 2800) throw new Error(`gift bloom too slow: ${flowerBloomDelay}ms`);
     await pages[0].cdp.screenshot(path.join(OUT_DIR, 'ui-gift-bloom.png'));
     await pages[0].cdp.waitFor(
       "document.querySelectorAll('#emote-layer .gift-fly, #emote-layer .gift-bloom').length === 0",
-      7000,
-      'gift animation finished (3s)',
+      4000,
+      'gift animation finished',
     );
-    console.log('gift: basket → fly → bloom → cleanup ok');
+    const flowerClearDelay = Date.now() - flowerGiftStartedAt;
+    if (flowerClearDelay < 1500 || flowerClearDelay > 4500) {
+      throw new Error(`gift cleanup timing unexpected: ${flowerClearDelay}ms`);
+    }
+    console.log('gift: basket → 750ms fly → bloom → cleanup', flowerBloomDelay, '/', flowerClearDelay);
 
     // Scoring: single global round score in the topbar + personal cumulative scores on pods.
     const scoreUi = await pages[0].cdp.evaluate(`(() => ({
@@ -568,6 +649,9 @@ async function main() {
     let identityText = '';
     let resultSeen = false;
     let hintTested = false;
+    let clockStructureChecked = false;
+    let clockAlertSeen = false;
+    let clockAlertRemovalChecked = false;
 
     while (guard < 150) {
       guard += 1;
@@ -602,6 +686,48 @@ async function main() {
       if (activeIndex === -1) continue;
       const page = pages[activeIndex];
       const state = states[activeIndex];
+
+      // 回合闹钟：只显示秒数，≤5s 出现 alert；这里会在自己的第一个回合故意不操作等警报。
+      if (!clockStructureChecked) {
+        const clockInfo = await page.cdp.evaluate(`(() => {
+          const clocks = [...document.querySelectorAll('.turn-clock')];
+          if (!clocks.length) return null;
+          return clocks.map((clock) => ({
+            hasI: !!clock.querySelector('i'),
+            hasB: !!clock.querySelector('b'),
+            text: clock.textContent.trim(),
+            seconds: Number(clock.querySelector('b')?.textContent || ''),
+            alert: clock.classList.contains('alert'),
+          }));
+        })()`);
+        if (!clockInfo) throw new Error('turn clock missing on player turn');
+        for (const clock of clockInfo) {
+          if (clock.hasI || /[a-zA-Z]/.test(clock.text)) {
+            throw new Error(`turn clock should only show seconds: "${clock.text}"`);
+          }
+          if (!clock.hasB || !Number.isFinite(clock.seconds)) {
+            throw new Error('turn clock missing numeric <b>');
+          }
+        }
+        clockStructureChecked = true;
+      }
+      if (!clockAlertSeen) {
+        const earlyClock = await page.cdp.evaluate(`(() => {
+          const clock = document.querySelector('.turn-clock');
+          if (!clock) return null;
+          return {
+            seconds: Number(clock.querySelector('b')?.textContent || ''),
+            alert: clock.classList.contains('alert'),
+          };
+        })()`);
+        if (earlyClock && earlyClock.seconds > 5 && earlyClock.alert) {
+          throw new Error('turn clock alert should not show above 5s');
+        }
+        await page.cdp.waitFor("!!document.querySelector('.turn-clock.alert')", 20000, 'turn clock alert <=5s');
+        clockAlertSeen = true;
+        console.log('turn clock: seconds only, alert appeared <=5s');
+      }
+
       await page.cdp.waitFor(
         "document.getElementById('play-animation').hidden",
         3500,
@@ -673,6 +799,17 @@ async function main() {
       });
 
       await sleep(140);
+      if (clockAlertSeen && !clockAlertRemovalChecked) {
+        await sleep(120);
+        const lingeringAlerts = await page.cdp.evaluate(
+          "document.querySelectorAll('.turn-clock.alert').length",
+        );
+        if (lingeringAlerts > 0) {
+          throw new Error('turn clock alert should clear when the next turn starts (>5s)');
+        }
+        clockAlertRemovalChecked = true;
+        console.log('turn clock: alert cleared on new turn');
+      }
       const alertText = await pages[0].cdp.evaluate("document.querySelector('.identity-alert')?.innerText || ''");
       if (alertText && !identitySeen) {
         identitySeen = true;
@@ -689,6 +826,9 @@ async function main() {
     }
 
     if (!resultSeen) throw new Error('result was not reached');
+    if (!clockStructureChecked) throw new Error('turn clock structure was never checked');
+    if (!clockAlertSeen) throw new Error('turn clock alert never appeared');
+    if (!clockAlertRemovalChecked) throw new Error('turn clock alert removal was never verified');
     await sleep(700);
     await Promise.all(pages.map((page) =>
       page.cdp.evaluate("document.querySelector('.identity-dismiss')?.click(); true"),
@@ -732,6 +872,7 @@ async function main() {
       scoringToggleVisible: (() => { const node = document.getElementById('result-scoring-toggle'); return Boolean(node && node.offsetParent !== null); })(),
       resultSharedHidden: (() => { const node = document.getElementById('result-shared-score'); return !node || node.offsetParent === null || node.hidden; })(),
       resultSharedEmpty: (() => { const node = document.getElementById('result-shared-score'); return !node || node.innerHTML.trim() === ''; })(),
+      clockAlerts: document.querySelectorAll('.turn-clock.alert').length,
     }))()`);
 
     if (finalState.roundLabel !== '本局积分') {
@@ -754,6 +895,7 @@ async function main() {
     if (finalState.scoringToggleVisible) throw new Error('result scoring toggle should not be visible');
     if (!finalState.resultSharedHidden) throw new Error('result-shared-score should stay hidden');
     if (!finalState.resultSharedEmpty) throw new Error('result-shared-score should not be rendered by app');
+    if (finalState.clockAlerts !== 0) throw new Error('turn clock alert should clear when the round ends');
     console.log('result score: deltas', finalState.deltas.join(','), '| totals', finalState.totals.join(','));
 
     await pages[0].cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -860,18 +1002,29 @@ async function main() {
     );
     console.log('single-player: trust toggled on/off');
 
-    // Single-player gift: bot basket → egg → fly → smash.
+    // Single-player gift: bot basket → egg → 750ms fly → 1500ms smash → cleanup.
     await singlePage.cdp.evaluate("document.querySelector('.player-pod .gift-basket-btn').click()");
     await singlePage.cdp.waitFor("!document.getElementById('gift-menu').hidden", 3000, 'single gift menu');
+    const eggGiftStartedAt = Date.now();
     await singlePage.cdp.evaluate("document.querySelector('#gift-menu [data-gift=\"egg\"]').click()");
-    await singlePage.cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly').length > 0", 3000, 'single gift fly');
-    await singlePage.cdp.waitFor("document.querySelectorAll('#emote-layer .gift-smash').length > 0", 4000, 'single egg smash');
+    await singlePage.cdp.waitFor("document.querySelectorAll('#emote-layer .gift-fly.egg').length > 0", 3000, 'single gift fly');
+    await sleep(750);
+    const eggLanding = await singlePage.cdp.evaluate(
+      "document.querySelectorAll('#emote-layer .gift-smash').length > 0",
+    );
+    if (!eggLanding) throw new Error('egg smash should appear after the 750ms flight');
+    const eggSmashDelay = Date.now() - eggGiftStartedAt;
+    if (eggSmashDelay > 2800) throw new Error(`egg smash too slow: ${eggSmashDelay}ms`);
     await singlePage.cdp.waitFor(
       "document.querySelectorAll('#emote-layer .gift-fly, #emote-layer .gift-smash').length === 0",
-      7000,
+      4000,
       'single gift cleanup',
     );
-    console.log('single-player: 3 bots ready; gift basket egg/smash ok');
+    const eggClearDelay = Date.now() - eggGiftStartedAt;
+    if (eggClearDelay < 1500 || eggClearDelay > 4500) {
+      throw new Error(`single gift cleanup timing unexpected: ${eggClearDelay}ms`);
+    }
+    console.log('single-player: 3 bots ready; egg 750ms fly/smash', eggSmashDelay, '/', eggClearDelay);
 
     const browserErrors = pages.flatMap((page) => page.cdp.errors);
     if (browserErrors.length) {

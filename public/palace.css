@@ -10228,7 +10228,1184 @@ body.deal-running .game-stage .center-empty {
   }
 }
 
+/* ---------------- task-22: tutorial rules, identity fill, basket, siren, tribute hand ---------------- */
+
+/* 1) tutorial optional rules: only two equal columns, opaque navy cards + gold border */
+.tutorial-rule-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-items: stretch;
+  gap: 10px;
+}
+
+.tutorial-rule-item {
+  width: 100%;
+  background: linear-gradient(180deg, #0d4374, #062a4b 72%);
+  border: 2px solid rgba(255, 216, 112, 0.62);
+  box-shadow:
+    0 4px 0 rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.tutorial-rule-item > span {
+  color: #ffd45e;
+}
+
+.tutorial-rule-item b {
+  color: #fff3c3;
+}
+
+.tutorial-rule-item em {
+  color: #c9e3f5;
+}
+
+.tutorial-rule-item.is-viewed {
+  border-color: #8fe3b4;
+  background: linear-gradient(180deg, #0f5f48, #073c2d 72%);
+}
+
+.tutorial-rule-item[data-tutorial-rule="scoring"] {
+  display: none !important;
+}
+
+.tutorial-rules-sheet {
+  background: rgba(2, 14, 29, 0.94);
+}
+
+.tutorial-rules-card {
+  border: 3px solid #f2c963;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 232, 150, 0.12), transparent 42%),
+    linear-gradient(160deg, #0a3b68, #04172f);
+  box-shadow:
+    0 0 0 2px rgba(255, 214, 112, 0.16),
+    0 24px 70px rgba(0, 0, 0, 0.65);
+}
+
+.tutorial-rule-detail {
+  border-left: 3px solid #ffd45e;
+  background: rgba(6, 38, 68, 0.92);
+}
+
+@media (max-width: 700px) {
+  .tutorial-rule-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .tutorial-rule-item {
+    min-height: 86px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px;
+  }
+
+  .tutorial-rule-item > span {
+    font-size: 22px;
+  }
+
+  .tutorial-rule-item b {
+    font-size: 14px;
+  }
+
+  .tutorial-rule-item em {
+    display: block;
+    flex: 0 1 auto;
+    font-size: 10.5px;
+    text-align: center;
+  }
+}
+
+/* 2) identity badges: opaque gold/green gradients, keep the frame */
+.game-stage .pod-badges .landlord-badge,
+.game-stage .self-tags .landlord-badge,
+.game-stage .self-tags .private-role-badge.landlord {
+  border-color: #fff0a8;
+  background: linear-gradient(180deg, #fff4b8 0%, #ffd45e 44%, #e3a021 100%);
+  color: #58230a;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 2px 0 rgba(78, 38, 6, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.game-stage .pod-badges .farmer-badge,
+.game-stage .self-tags .farmer-badge,
+.game-stage .self-tags .private-role-badge.farmer {
+  border-color: #d8ffe8;
+  background: linear-gradient(180deg, #c9ffdc 0%, #5ed98d 46%, #1c9b5d 100%);
+  color: #073d22;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow:
+    0 2px 0 rgba(6, 62, 32, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* 3) cartoon gift basket: larger, navy body + gold rim + big basket emoji */
+.game-stage .gift-basket-btn {
+  top: -17px;
+  width: 38px;
+  height: 38px;
+  border: 2px solid #ffd45e;
+  background:
+    radial-gradient(circle at 50% 18%, #17618f 0 28%, transparent 62%),
+    linear-gradient(180deg, #0f4d80, #062a4d 62%, #041b33);
+  color: #fff;
+  font-size: 23px;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    0 0 0 2px rgba(4, 27, 51, 0.35),
+    0 4px 0 rgba(0, 0, 0, 0.32),
+    0 0 14px rgba(255, 212, 94, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+@media (max-width: 700px) {
+  .game-stage .gift-basket-btn {
+    top: -14px;
+    width: 32px;
+    height: 32px;
+    font-size: 19px;
+  }
+}
+
+/* 4) cartoon siren: blinking dome, rotating/pulsing rays, gentle sway */
+.game-stage .report-beacon.cartoon-siren {
+  animation: sirenSway 2.4s ease-in-out infinite;
+  transform-origin: 50% 92%;
+}
+
+.game-stage .siren-rays {
+  transform-origin: 50% 30px;
+  animation: sirenRaysTurn 3.6s linear infinite;
+}
+
+.game-stage .siren-rays i {
+  animation: sirenRayPulse 0.9s ease-in-out infinite alternate;
+}
+
+.game-stage .siren-rays i:nth-child(1) {
+  animation-delay: 0.12s;
+}
+
+.game-stage .siren-rays i:nth-child(2) {
+  animation-delay: 0.28s;
+}
+
+.game-stage .siren-rays i:nth-child(3) {
+  animation-delay: 0.44s;
+}
+
+.game-stage .siren-dome {
+  animation: sirenDomeFlash 1.05s ease-in-out infinite;
+}
+
+.game-stage .siren-dome::after {
+  animation: sirenBulbBlink 1.05s steps(2, end) infinite;
+}
+
+.game-stage .siren-base {
+  animation: sirenBasePulse 2.4s ease-in-out infinite;
+}
+
+@keyframes sirenSway {
+  0%, 100% { rotate: 0deg; translate: 0 0; }
+  30% { rotate: -3deg; translate: 0 -1px; }
+  62% { rotate: 2.6deg; translate: 0 1px; }
+  82% { rotate: -1deg; }
+}
+
+@keyframes sirenRaysTurn {
+  to { rotate: 360deg; }
+}
+
+@keyframes sirenRayPulse {
+  from { opacity: 0.45; scale: 0.82; }
+  to { opacity: 1; scale: 1.3; }
+}
+
+@keyframes sirenDomeFlash {
+  0%, 100% {
+    filter: brightness(1);
+    box-shadow: inset 0 -3px 5px rgba(80, 0, 0, 0.35), 0 2px 0 rgba(0, 0, 0, 0.2);
+  }
+  38% {
+    filter: brightness(1.55) saturate(1.2);
+    box-shadow:
+      inset 0 -3px 5px rgba(80, 0, 0, 0.3),
+      0 0 14px 5px rgba(255, 64, 44, 0.85),
+      0 2px 0 rgba(0, 0, 0, 0.2);
+  }
+  58% {
+    filter: brightness(0.88);
+    box-shadow: inset 0 -3px 5px rgba(80, 0, 0, 0.35), 0 2px 0 rgba(0, 0, 0, 0.2);
+  }
+}
+
+@keyframes sirenBulbBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.35; }
+}
+
+@keyframes sirenBasePulse {
+  0%, 100% { filter: brightness(1); box-shadow: 0 3px 0 rgba(0, 0, 0, 0.22); }
+  45% { filter: brightness(1.2); box-shadow: 0 3px 0 rgba(0, 0, 0, 0.22), 0 0 9px rgba(255, 212, 94, 0.6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-stage .report-beacon.cartoon-siren,
+  .game-stage .report-beacon.cartoon-siren *,
+  .game-stage .report-beacon.cartoon-siren *::before,
+  .game-stage .report-beacon.cartoon-siren *::after {
+    animation: none !important;
+  }
+}
+
+/* 5) tribute hand: bigger cards inside the existing own-hand area */
+#screen-tribute .tribute-hand {
+  --th-w: clamp(44px, 9.8vw, 76px);
+  --th-step: calc(var(--th-w) * 0.62);
+  padding: 15px 4px 2px;
+}
+
+#screen-tribute .tribute-own-area {
+  padding: 1px 12px 2px;
+}
+
+#screen-tribute .tribute-hand-card .card-rank {
+  font-size: clamp(15px, 1.7vw, 23px);
+}
+
+#screen-tribute .tribute-hand-card .card-suit {
+  font-size: clamp(13px, 1.4vw, 18px);
+}
+
+#screen-tribute .tribute-hand-card .card-watermark {
+  font-size: clamp(20px, 3vh, 34px);
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #screen-tribute .tribute-hand {
+    --th-w: clamp(40px, 5vw, 56px);
+    --th-step: calc(var(--th-w) * 0.64);
+    padding: 14px 4px 1px;
+  }
+
+  #screen-tribute .tribute-own-area {
+    padding: 1px 9px 1px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-rank {
+    font-size: 15px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-suit {
+    font-size: 13px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-watermark {
+    font-size: 22px;
+  }
+}
+
+/* 6) picked-card chooser marker: override app inline 16px avatar */
+#screen-tribute .tribute-card-picker {
+  min-height: 28px;
+  max-width: calc(100% - 2px) !important;
+  padding: 2px 7px 2px 2px !important;
+  gap: 4px !important;
+  font-size: 11px !important;
+}
+
+#screen-tribute .tribute-card-picker > span:first-child {
+  width: 26px !important;
+  height: 26px !important;
+  flex: 0 0 26px !important;
+  border: 2px solid #ffe08a;
+  font-size: 11px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+#screen-tribute .tribute-card-picker img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+
+#screen-tribute .tribute-card-picker > span:last-child {
+  min-width: 0;
+  font-size: 11px !important;
+  line-height: 1.1 !important;
+}
+
+/* 7) task-23 hook: egg gift flight keeps accelerating */
+.gift-fly.egg {
+  animation-timing-function: cubic-bezier(0.55, 0.05, 0.95, 0.4);
+}
+
+/* short landscape: keep the two tutorial rule cards fully on screen */
+@media (orientation: landscape) and (max-height: 520px) {
+  .tutorial-rules-sheet {
+    padding: 8px;
+  }
+
+  .tutorial-rules-card {
+    max-height: calc(100dvh - 12px);
+    padding: 10px 14px 8px;
+  }
+
+  .tutorial-rules-card > p {
+    display: none;
+  }
+
+  .tutorial-rules-card h2 {
+    margin: 2px 0 6px;
+    font-size: 20px;
+  }
+
+  .tutorial-rule-grid {
+    gap: 8px;
+    margin: 8px 0;
+  }
+
+  .tutorial-rule-item {
+    min-height: 72px;
+    padding: 6px;
+  }
+
+  .tutorial-rule-item > span {
+    font-size: 21px;
+  }
+
+  .tutorial-rule-item b {
+    font-size: 14px;
+  }
+
+  .tutorial-rule-item em {
+    font-size: 10.5px;
+  }
+
+  .tutorial-rule-detail {
+    min-height: 0;
+    margin-top: 6px;
+    padding: 6px 8px;
+  }
+
+  .tutorial-rule-progress {
+    font-size: 11px !important;
+  }
+
+  .tutorial-rules-card .tutorial-actions {
+    margin-top: 6px;
+    gap: 6px;
+  }
+
+  .tutorial-rules-card .tutorial-actions .primary-btn,
+  .tutorial-rules-card .tutorial-actions .secondary-btn {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+}
+
+/* ---------------- task-24: responsive battle log, bigger tribute hand, fast egg flight ---------------- */
+
+/* 1) log drawer: wider on desktop, fluid on tablet/phone */
+.log-drawer {
+  width: clamp(360px, 46vw, 660px);
+  max-width: 94vw;
+}
+
+.log-list {
+  padding: clamp(8px, 0.8vw, 14px) clamp(10px, 1vw, 18px) 18px;
+}
+
+.log-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: clamp(6px, 0.55vw, 11px);
+  min-height: clamp(46px, 3.6vw, 58px);
+  padding: clamp(6px, 0.55vw, 10px) 4px;
+  font-size: clamp(15px, 1.15vw, 18px);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.log-avatar {
+  width: clamp(32px, 2.5vw, 42px);
+  height: clamp(32px, 2.5vw, 42px);
+  font-size: clamp(13px, 1.1vw, 17px);
+}
+
+.log-cards {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: clamp(4px, 0.35vw, 7px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 216, 112, 0.45) transparent;
+}
+
+.log-cards .mini-identity,
+.log-cards .log-card {
+  width: clamp(34px, 2.55vw, 46px);
+  height: clamp(46px, 3.5vw, 63px);
+  border-width: 2px;
+  font-size: clamp(14px, 1.18vw, 20px);
+  line-height: 1.05;
+}
+
+.log-cards .log-card b,
+.log-cards .log-card strong {
+  color: inherit;
+  font-size: inherit;
+  line-height: 1;
+}
+
+.log-cards .log-card > span {
+  color: inherit;
+  font-size: 0.84em;
+  line-height: 1;
+}
+
+.log-cards .log-card.red {
+  color: #d9362d;
+}
+
+.log-cards .log-card:not(.red) {
+  color: #2b1a10;
+}
+
+@media (max-width: 900px) {
+  .log-drawer {
+    width: clamp(340px, 62vw, 560px);
+    max-width: 96vw;
+  }
+}
+
+@media (max-width: 560px) {
+  .log-drawer {
+    width: 96vw;
+    max-width: 96vw;
+  }
+
+  .log-cards .mini-identity,
+  .log-cards .log-card {
+    width: 34px;
+    height: 46px;
+    font-size: 14px;
+  }
+}
+
+/* 2) tribute hand: card height ≈78% of the hand row, bigger labels, same own area */
+#screen-tribute .tribute-hand {
+  --th-w: clamp(64px, 6vw, 84px);
+  --th-step: calc(var(--th-w) * 0.62);
+  --th-card-h: calc(var(--th-w) * 1.42);
+  --th-area-h: calc(var(--th-card-h) * 1.282);
+  box-sizing: border-box;
+  height: var(--th-area-h);
+  min-height: var(--th-area-h);
+  padding: calc(var(--th-area-h) - var(--th-card-h)) 4px 0;
+}
+
+#screen-tribute .tribute-hand-card {
+  --card-h: var(--th-card-h);
+}
+
+#screen-tribute .tribute-hand-card .card-rank {
+  font-size: clamp(16px, 1.8vw, 25px);
+}
+
+#screen-tribute .tribute-hand-card .card-suit {
+  font-size: clamp(14px, 1.5vw, 20px);
+}
+
+#screen-tribute .tribute-hand-card .card-watermark {
+  font-size: clamp(22px, 3.2vh, 36px);
+}
+
+#screen-tribute .tribute-hand-card.selected {
+  transform: translateY(-9px);
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #screen-tribute .tribute-hand {
+    --th-w: clamp(42px, 5.2vw, 54px);
+    --th-step: calc(var(--th-w) * 0.62);
+    --th-card-h: calc(var(--th-w) * 1.42);
+    --th-area-h: calc(var(--th-card-h) * 1.282);
+    height: var(--th-area-h);
+    min-height: var(--th-area-h);
+    padding: calc(var(--th-area-h) - var(--th-card-h)) 4px 0;
+  }
+
+  #screen-tribute .tribute-own-area {
+    padding: 0 9px;
+  }
+
+  #screen-tribute .tribute-own-head p {
+    font-size: 10px !important;
+    line-height: 1.15;
+  }
+
+  #screen-tribute .tribute-actions .play-btn,
+  #screen-tribute .tribute-actions .clear-btn {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-rank {
+    font-size: 16px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-suit {
+    font-size: 14px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-watermark {
+    font-size: 23px;
+  }
+}
+
+/* 3) egg flight: 0.75s, continuously accelerating; landing stays 1.5s */
+.gift-fly.egg {
+  animation-duration: 750ms;
+  animation-timing-function: cubic-bezier(0.68, 0, 1, 0.58);
+}
+
+/* ---------------- task-26: retro alarm clock, static siren rays, rule switches, 90% hand ---------------- */
+
+/* 1) turn clock: vintage alarm clock — red frame, pink twin bells, white dial, two feet */
+.game-stage .turn-clock {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  overflow: visible;
+  border: 3px solid #cf342d;
+  border-radius: 46%;
+  background:
+    radial-gradient(circle at 38% 28%, rgba(255, 245, 226, 0.95), transparent 55%),
+    linear-gradient(180deg, #ffe3c4, #ddaa6d 72%, #b7743d);
+  color: #a41412;
+  box-shadow:
+    0 4px 0 #7d211b,
+    0 7px 14px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 2px #ffd9c7;
+  transform-origin: 50% 92%;
+}
+
+/* double bells above the frame */
+.game-stage .turn-clock::before {
+  content: "";
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  z-index: 2;
+  width: 36px;
+  height: 16px;
+  border: 0;
+  border-radius: 0;
+  background:
+    radial-gradient(circle at 7px 8px, #ffc6d5 0 6px, #d93449 7px 8px, transparent 9px),
+    radial-gradient(circle at 29px 8px, #ffc6d5 0 6px, #d93449 7px 8px, transparent 9px);
+  box-shadow: none;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 1px 1px rgba(70, 12, 16, 0.5));
+}
+
+/* white dial, no ticks or hands */
+.game-stage .turn-clock::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  z-index: 1;
+  border: 2px solid #a92722;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 28%, #ffffff, #fffaf0 66%, #f2e2c2);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.75),
+    -15px 13px 0 -7px #6f1813,
+    15px 13px 0 -7px #6f1813;
+}
+
+.game-stage .turn-clock b {
+  position: relative;
+  z-index: 3;
+  display: block;
+  margin: 0;
+  color: #a41412;
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* app removes the "s" unit; hide it as a fallback */
+.game-stage .turn-clock i {
+  display: none;
+}
+
+/* last seconds: little hop → shake → fall → settle (independent translate/rotate) */
+.game-stage .player-pod > .turn-clock {
+  top: -18px;
+  right: -10px;
+}
+
+.game-stage .player-pod > .turn-clock.alert {
+  animation: turnClockAlert 1.6667s ease-in-out infinite;
+}
+
+.game-stage .turn-clock.alert {
+  animation: turnClockAlert 1.6667s ease-in-out infinite;
+}
+
+/* Last 5s = exactly three 1.6667s loops. The loop begins with a hop,
+   then a light shake, then settles; there is no end-of-loop drop. */
+@keyframes turnClockAlert {
+  0% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+  8% {
+    translate: 0 -6px;
+    rotate: -2deg;
+  }
+  18% {
+    translate: 0 0;
+    rotate: 2deg;
+  }
+  30% {
+    translate: 0 -1px;
+    rotate: -7deg;
+  }
+  42% {
+    translate: 0 0;
+    rotate: 7deg;
+  }
+  54% {
+    translate: 0 -1px;
+    rotate: -4deg;
+  }
+  66% {
+    translate: 0 0;
+    rotate: 2deg;
+  }
+  78%, 100% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+}
+
+/* 2) report siren: rays are now static; keep the gentle sway and light blink */
+.game-stage .report-beacon.cartoon-siren .siren-rays,
+.game-stage .report-beacon.cartoon-siren .siren-rays i {
+  animation: none !important;
+}
+
+/* 3) result rule rows: on = gold icon/left border/lit row/track */
+.result-rule-row {
+  border-left: 2px solid rgba(108, 128, 142, 0.65);
+  background: rgba(4, 29, 53, 0.46);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.result-rule-row > b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.result-rule-row > b::before {
+  content: "供";
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border: 2px solid #718595;
+  border-radius: 6px;
+  background: #0a2d4c;
+  color: #a9bcc8;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.result-rule-row:nth-child(2) > b::before {
+  content: "风";
+}
+
+.result-rule-row > b {
+  color: #9eb4c3;
+}
+
+.result-rule-row > em {
+  color: #7f97a8;
+}
+
+.result-rule-row .switch-track {
+  border: 2px solid #687d8d;
+  background: #0a2742;
+  box-shadow: none;
+}
+
+.result-rule-row .switch-thumb {
+  background: #8fa3b1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.result-rule-row:has(.rule-switch.on) {
+  border-left: 4px solid #ffd45e;
+  background: linear-gradient(90deg, rgba(255, 212, 94, 0.24), rgba(5, 40, 75, 0.52));
+  box-shadow: inset 0 0 0 1px rgba(255, 212, 94, 0.32);
+}
+
+.result-rule-row:has(.rule-switch.on) > b {
+  color: #fff3c4;
+}
+
+.result-rule-row:has(.rule-switch.on) > b::before {
+  border-color: #fff0b0;
+  background: linear-gradient(180deg, #fff3b8, #ffd45e 46%, #dc941a);
+  color: #5c2407;
+  box-shadow:
+    0 0 10px rgba(255, 212, 94, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.result-rule-row:has(.rule-switch.on) > em {
+  color: #ffe8a4;
+}
+
+.result-rule-row:has(.rule-switch.on) .switch-track {
+  border: 3px solid #ffe17a;
+  background: #d99a2a;
+  box-shadow: 0 0 12px rgba(255, 212, 94, 0.7);
+}
+
+.result-rule-row:has(.rule-switch.on) .switch-thumb {
+  background: #fffdf0;
+  box-shadow: 0 0 8px rgba(255, 245, 210, 0.85);
+}
+
+.result-rule-row:not(:has(.rule-switch.on)) .switch-thumb {
+  background: #8fa3b1;
+}
+
+/* 4) tribute hand: keep task-24 hand-area height, grow cards from 78% to ≈90% */
+#screen-tribute .tribute-hand {
+  --th-base-w: clamp(64px, 6vw, 84px);
+  --th-area-h: calc(var(--th-base-w) * 1.42 * 1.282);
+  --th-w: calc(var(--th-base-w) * 1.15);
+  --th-step: calc(var(--th-w) * 0.66);
+  --th-card-h: calc(var(--th-w) * 1.42);
+  height: var(--th-area-h);
+  min-height: var(--th-area-h);
+  padding: calc(var(--th-area-h) - var(--th-card-h)) 4px 0;
+}
+
+#screen-tribute .tribute-hand-card {
+  --card-h: var(--th-card-h);
+}
+
+#screen-tribute .tribute-hand-card.selected {
+  transform: translateY(-7px);
+}
+
+#screen-tribute .tribute-hand-card .card-rank {
+  font-size: clamp(18px, 1.9vw, 27px);
+}
+
+#screen-tribute .tribute-hand-card .card-suit {
+  font-size: clamp(15px, 1.55vw, 21px);
+}
+
+#screen-tribute .tribute-hand-card .card-watermark {
+  font-size: clamp(24px, 3.4vh, 38px);
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #screen-tribute .tribute-hand {
+    --th-base-w: clamp(42px, 5.2vw, 54px);
+    --th-area-h: calc(var(--th-base-w) * 1.42 * 1.282);
+    --th-w: calc(var(--th-base-w) * 1.15);
+    --th-step: calc(var(--th-w) * 0.66);
+    --th-card-h: calc(var(--th-w) * 1.42);
+    height: var(--th-area-h);
+    min-height: var(--th-area-h);
+    padding: calc(var(--th-area-h) - var(--th-card-h)) 4px 0;
+  }
+
+  #screen-tribute .tribute-hand-card .card-rank {
+    font-size: 18px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-suit {
+    font-size: 15px;
+  }
+
+  #screen-tribute .tribute-hand-card .card-watermark {
+    font-size: 25px;
+  }
+
+  .game-stage .turn-clock {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+
+  .game-stage .turn-clock b {
+    font-size: 16px;
+  }
+}
 
 
 
+
+
+/* task-28: make the enabled optional-rule icon state explicit and persistent,
+   independent of :has() support. */
+.result-rule-row.is-on {
+  border-left: 4px solid #ffd45e;
+  background: linear-gradient(90deg, rgba(255, 212, 94, 0.24), rgba(5, 40, 75, 0.52));
+  box-shadow: inset 0 0 0 1px rgba(255, 212, 94, 0.32);
+}
+
+.result-rule-row.is-on > b {
+  color: #fff3c4;
+}
+
+.result-rule-row.is-on > b::before {
+  border-color: #fff0b0;
+  background: linear-gradient(180deg, #fff3b8, #ffd45e 46%, #dc941a);
+  color: #5c2407;
+  box-shadow:
+    0 0 10px rgba(255, 212, 94, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.result-rule-row.is-on > em {
+  color: #ffe8a4;
+}
+
+.result-rule-row.is-on .switch-track {
+  border: 3px solid #ffe17a;
+  background: #d99a2a;
+  box-shadow: 0 0 12px rgba(255, 212, 94, 0.7);
+}
+
+.result-rule-row.is-on .switch-thumb {
+  background: #fffdf0;
+  box-shadow: 0 0 8px rgba(255, 245, 210, 0.85);
+}
+
+.result-rule-row:not(.is-on) .switch-thumb {
+  background: #8fa3b1;
+}
+
+/* task-28: closer to the supplied vintage alarm-clock reference,
+   keeping the existing alert animation and gold-table glow. */
+.game-stage .turn-clock {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border: 3px solid #9f222b;
+  border-radius: 48%;
+  background:
+    radial-gradient(circle at 34% 24%, #ffd7dc 0 18%, transparent 38%),
+    linear-gradient(180deg, #f7aab2 0 42%, #dd4a56 64%, #b92332 100%);
+  color: #98151c;
+  box-shadow:
+    0 0 0 2px #ffd9a0,
+    0 4px 0 #6e1218,
+    0 7px 14px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 246, 220, 0.65);
+}
+
+.game-stage .turn-clock::before {
+  top: -12px;
+  left: 50%;
+  width: 42px;
+  height: 22px;
+  background:
+    radial-gradient(circle at 8px 11px, #ffd0d8 0 5.5px, #b72431 6.5px 8px, transparent 9px),
+    radial-gradient(circle at 34px 11px, #ffd0d8 0 5.5px, #b72431 6.5px 8px, transparent 9px),
+    linear-gradient(90deg, transparent 5px, #9f222b 5px 8px, transparent 8px) 0 13px / 42px 3px no-repeat,
+    linear-gradient(90deg, transparent 34px, #9f222b 34px 37px, transparent 37px) 0 13px / 42px 3px no-repeat;
+  filter: drop-shadow(0 1px 1px rgba(70, 12, 16, 0.5));
+}
+
+.game-stage .turn-clock::after {
+  inset: 6px;
+  border: 3px solid #9f222b;
+  background: radial-gradient(circle at 36% 26%, #ffffff, #fffdf6 62%, #f5ead6);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.9),
+    -14px 15px 0 -7px #fffaf0,
+    -14px 15px 0 -5px #8f1c22,
+    14px 15px 0 -7px #fffaf0,
+    14px 15px 0 -5px #8f1c22;
+}
+
+.game-stage .turn-clock b {
+  color: #98151c;
+  font-size: 20px;
+  text-shadow: 0 1px 0 #fff;
+}
+
+/* task-29: single-player topbar parity + left-shifted round/score group */
+
+/* The music-note indicator inside the round/score group is removed. */
+#game-sound-dot {
+  display: none !important;
+}
+
+/* Optional-rule buttons in the single-player topbar use the same persistent
+   enabled treatment as the result rows: icon, thicker gold border, lit fill. */
+.game-stage .game-topbar .single-setting-btn {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  gap: 5px;
+  min-width: 62px;
+  padding: 0 7px 0 6px;
+  border-width: 2px;
+  border-color: rgba(255, 218, 120, 0.36);
+  background: rgba(4, 27, 52, 0.6);
+  color: #b9cfdd;
+  font-weight: 800;
+}
+
+.game-stage .game-topbar .single-setting-btn::before {
+  content: "渚?;
+  display: inline-grid;
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  place-items: center;
+  border: 2px solid #718595;
+  border-radius: 5px;
+  background: #0a2d4c;
+  color: #a9bcc8;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.game-stage .game-topbar #single-borrow-btn::before {
+  content: "椋?;
+}
+
+.game-stage .game-topbar .single-setting-btn.on {
+  border: 2px solid #ffd45e;
+  background: linear-gradient(180deg, rgba(255, 212, 94, 0.28), rgba(121, 70, 12, 0.42));
+  color: #fff3c4;
+  box-shadow:
+    0 0 10px rgba(255, 212, 94, 0.55),
+    inset 0 0 0 1px rgba(255, 212, 94, 0.35);
+}
+
+.game-stage .game-topbar .single-setting-btn.on::before {
+  border-color: #fff0b0;
+  background: linear-gradient(180deg, #fff3b8, #ffd45e 46%, #dc941a);
+  color: #5c2407;
+  box-shadow:
+    0 0 9px rgba(255, 212, 94, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* On desktop there is enough room to start the round/score group right after
+   the brand while keeping a clear gap before the action buttons. */
+@media (min-width: 1050px) {
+  .game-stage .game-topbar {
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+  }
+
+  .game-stage .game-topbar-center {
+    justify-content: flex-start;
+    padding-left: clamp(8px, 1.4vw, 24px);
+  }
+}
+
+.game-stage .report-beacon.cartoon-siren .siren-rays { display: none !important; }
+/* Approved concept A: gold coin clock, navy inner ring, ivory dial,
+   twin semicircular bells with their flat edges facing the dial centre. */
+.game-stage .turn-clock {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  overflow: visible;
+  border: 2px solid #5e2b0e;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #fff5bd 0 20%, #ffd45e 46%, #e0a02c 72%, #a9640d 100%);
+  color: #76260f;
+  box-shadow:
+    0 0 0 1px rgba(255, 240, 176, 0.75),
+    0 3px 0 #5b2a0d,
+    0 6px 12px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.game-stage .turn-clock::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  top: 3px;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: auto;
+  height: auto;
+  z-index: 0;
+  border: 2px solid #ffe8a2;
+  border-radius: 50%;
+  background: radial-gradient(circle at 42% 30%, #124b7f, #06203c 78%);
+  box-shadow: none;
+  transform: none;
+  filter: none;
+}
+
+.game-stage .turn-clock::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: 1;
+  border: 2px solid #9a5a18;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 28%, #fffef8, #f8ebcf 68%, #d9c08d);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.game-stage .turn-clock b {
+  position: relative;
+  z-index: 3;
+  display: block;
+  margin: 0;
+  color: #76260f;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-shadow: 0 1px 0 #fff;
+}
+
+/* flat side faces the dial centre; the curved cap points outward */
+.game-stage .turn-clock .clock-bell {
+  position: absolute;
+  top: -8px;
+  z-index: 4;
+  width: 18px;
+  height: 9px;
+  border: 1.5px solid #5e2b0e;
+  border-radius: 9px 9px 0 0;
+  background: linear-gradient(180deg, #fff3b0, #ffd45e 54%, #d38b18);
+  box-shadow:
+    0 1px 0 rgba(70, 30, 8, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+}
+
+.game-stage .turn-clock .clock-bell-left {
+  left: 0;
+  transform: rotate(-32deg);
+}
+
+.game-stage .turn-clock .clock-bell-right {
+  right: 0;
+  transform: rotate(32deg);
+}
+
+.game-stage .turn-clock .clock-foot {
+  position: absolute;
+  bottom: -7px;
+  z-index: 0;
+  width: 7px;
+  height: 10px;
+  border: 1.5px solid #5e2b0e;
+  background: linear-gradient(180deg, #ffe28a, #bf7a18);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+.game-stage .turn-clock .clock-foot-left {
+  left: 8px;
+  transform: rotate(-18deg);
+}
+
+.game-stage .turn-clock .clock-foot-right {
+  right: 8px;
+  transform: rotate(18deg);
+}
+
+/* The siren must sway around the centre of its base, not around one end. */
+.game-stage .report-beacon.cartoon-siren {
+  transform-origin: 50% 100%;
+}
+
+@media (max-height: 520px) {
+  .game-stage .turn-clock {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+  .game-stage .turn-clock b { font-size: 19px; }
+  .game-stage .turn-clock .clock-bell { width: 17px; height: 8.5px; top: -7px; }
+  .game-stage .turn-clock .clock-foot { bottom: -6px; width: 6px; height: 9px; }
+}
+
+/* Dial number: optically centred and moved up; red at <=5s. */
+.game-stage .turn-clock b {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding-bottom: 3px;
+  margin: 0;
+  transform: none;
+}
+
+.game-stage .turn-clock.alert b {
+  color: #d51f1a !important;
+  text-shadow: 0 1px 0 #fff, 0 0 8px rgba(213, 31, 26, 0.38);
+}
+
+/* Siren pivots at the centre of its base, not either end. */
+.game-stage .report-beacon.cartoon-siren {
+  transform-box: border-box;
+  transform-origin: 22px 37px !important;
+}
+
+/* Supply / return pool cards: a little smaller than the previous oversized
+   version, while keeping the 3:4 card face and pool row height. */
+#screen-tribute .tribute-pick-card {
+  width: clamp(54px, 6.2vw, 82px) !important;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  #screen-tribute .tribute-pick-card {
+    width: clamp(50px, 6vw, 62px) !important;
+  }
+}
+
+@media (min-width: 901px) {
+  #screen-tribute .tribute-pick-card {
+    width: clamp(68px, 5.6vw, 86px) !important;
+  }
+}
 

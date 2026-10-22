@@ -569,10 +569,12 @@
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
       const start = ctx.currentTime + startOffset;
+      // 整体音量提升约 4 倍（系统 15% 也要听得到），限幅 0.8 防破音。
+      const level = Math.min(0.8, Math.max(0.0001, volume * 4));
       oscillator.type = type;
       oscillator.frequency.setValueAtTime(frequency, start);
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(volume, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(level, start + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       oscillator.connect(gain);
       gain.connect(ctx.destination);
@@ -1149,7 +1151,7 @@
       utterance.lang = 'zh-CN';
       utterance.rate = 1.08;
       utterance.pitch = 1.08;
-      utterance.volume = 0.9;
+      utterance.volume = 1.0;
       window.speechSynthesis.speak(utterance);
     } catch {
       // 浏览器不支持语音时保留动画和文字提示。
@@ -1258,7 +1260,7 @@
     renderHand(room);
   }
 
-  function playDealAnimation(room) {
+  function playDealAnimation(room, onDone = null) {
     const layer = el['deal-animation'];
     if (!layer || !room) {
       app.dealActive = false;
@@ -1295,6 +1297,10 @@
       document.body.classList.remove('deal-running');
       layer.hidden = true;
       layer.innerHTML = '';
+      if (onDone) {
+        onDone();
+        return;
+      }
       renderGame(app.room || room);
       app.identityIntroActive = true;
       updateActionArea();
@@ -2064,7 +2070,7 @@
       y: window.innerHeight * 0.72,
     };
     const fly = document.createElement('div');
-    fly.className = 'gift-fly';
+    fly.className = `gift-fly ${kind}`;
     fly.textContent = GIFT_ICONS[kind];
     fly.style.left = `${Math.round(start.x)}px`;
     fly.style.top = `${Math.round(start.y)}px`;
@@ -2080,7 +2086,7 @@
       landing.style.top = `${Math.round(targetPoint.y)}px`;
       layer.appendChild(landing);
       setTimeout(() => landing.remove(), 1500);
-    }, 1500);
+    }, 750);
   }
 
   function handleEmote(message) {
@@ -2494,7 +2500,16 @@
     if (app.tributeDealDoneKey !== dealKey) {
       if (app.tributeDealRunning) return;
       app.tributeDealRunning = true;
-      playTributeDeal(room, () => {
+      // Clear the previous round's hand, then deal the new hand visibly in the
+      // real hand area before switching to the tribute page.
+      app.dealActive = true;
+      app.dealCounts = [0, 0, 0, 0];
+      app.handSignature = '';
+      if (el['hand']) el['hand'].innerHTML = '';
+      showScreen('game');
+      renderPods(room);
+      renderHand(room);
+      playDealAnimation(room, () => {
         app.tributeDealDoneKey = dealKey;
         app.tributeDealRunning = false;
         handleTributeState(app.room || room);
@@ -2686,8 +2701,8 @@
     const picker = Number.isInteger(seat) ? playerAtSeat(seat) : null;
     const pickerName = entry.pickedByName || picker?.name || (entry.auto ? '自动选择' : '已挑走');
     const avatar = resolveAvatar(picker);
-    return `<span class="tribute-card-picker" style="position:absolute;left:3px;bottom:2px;z-index:2;display:inline-flex;align-items:center;gap:3px;max-width:calc(100% - 6px);padding:1px 5px 1px 1px;border-radius:999px;background:rgba(4,32,58,0.92);box-shadow:0 0 0 1px rgba(255,231,160,0.45);color:#ffe7a0;font-size:9px;font-weight:900;line-height:1.2;">
-      <span style="display:grid;width:16px;height:16px;flex:0 0 auto;place-items:center;overflow:hidden;border-radius:50%;background:#0b3b63;color:#ffe7a0;font-size:9px;font-weight:900;">${avatar ? `<img src="${esc(avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : initial(pickerName)}</span>
+    return `<span class="tribute-card-picker" style="position:absolute;left:3px;bottom:2px;z-index:2;display:inline-flex;align-items:center;gap:4px;max-width:calc(100% - 6px);min-height:26px;padding:2px 7px 2px 2px;border-radius:999px;background:rgba(4,32,58,0.92);box-shadow:0 0 0 1px rgba(255,231,160,0.45);color:#ffe7a0;font-size:11px;font-weight:900;line-height:1.2;">
+      <span style="display:grid;width:26px;height:26px;flex:0 0 auto;place-items:center;overflow:hidden;border-radius:50%;background:#0b3b63;color:#ffe7a0;font-size:11px;font-weight:900;">${avatar ? `<img src="${esc(avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;">` : initial(pickerName)}</span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(pickerName)}</span>
     </span>`;
   }
@@ -3080,7 +3095,7 @@
       utterance.lang = 'zh-CN';
       utterance.rate = rate;
       utterance.pitch = pitch;
-      utterance.volume = 0.9;
+      utterance.volume = 1.0;
       window.speechSynthesis.speak(utterance);
     } catch {
       // 没有语音能力时保留画面反馈。
@@ -3188,7 +3203,7 @@
           <div class="pod-name" title="${esc(player.name)}">${esc(player.name)}${player.isYou ? ' · 你' : ''}</div>
           <div class="pod-badges">${app.dealActive ? '' : playerBadges(player)}${app.dealActive ? '' : reportBeacon(player)}${app.dealActive ? '' : personalScoreBadge(room, player)}</div>
         </div>
-        ${isTurn ? `<span class="turn-clock" title="回合剩余时间"><b>${turnClockSeconds(room)}</b><i>s</i></span>` : ''}
+        ${isTurn ? `<span class="turn-clock" title="回合剩余时间"><span class="clock-bell clock-bell-left"></span><span class="clock-bell clock-bell-right"></span><span class="clock-foot clock-foot-left"></span><span class="clock-foot clock-foot-right"></span><b>${turnClockSeconds(room)}</b></span>` : ''}
         <div class="pod-stack" aria-hidden="true">
           <span class="card-back-mini"></span><span class="card-back-mini"></span><span class="card-back-mini"></span>
           <span class="stack-count ${!player.finished && player.handCount <= 2 ? 'low' : ''}">${player.finished ? '✓' : visibleCount}</span>
@@ -3232,7 +3247,7 @@
         <div class="self-name">${esc(me.name)} · 你</div>
         <div class="self-tags">${app.dealActive ? '' : playerBadges(me, true)}${app.dealActive ? '' : privateRoleMarkup(room)}${app.dealActive ? '' : personalScoreBadge(room, me)}</div>
       </div>
-      ${isTurn ? `<span class="turn-clock self-turn-clock" title="回合剩余时间"><b>${turnClockSeconds(room)}</b><i>s</i></span>` : ''}
+      ${isTurn ? `<span class="turn-clock self-turn-clock" title="回合剩余时间"><span class="clock-bell clock-bell-left"></span><span class="clock-bell clock-bell-right"></span><span class="clock-foot clock-foot-left"></span><span class="clock-foot clock-foot-right"></span><b>${turnClockSeconds(room)}</b></span>` : ''}
     `;
 
     const selfTrick = trickPlayFor(room, room.youSeat);
@@ -3403,8 +3418,11 @@
       ? Math.max(0, (room.turnDeadline - now) / 1000)
       : null;
     const clockValue = turnRemaining === null ? null : Math.max(0, Math.round(turnRemaining));
-    for (const clock of document.querySelectorAll('.turn-clock b')) {
-      clock.textContent = clockValue === null ? '' : String(clockValue);
+    // 闹钟只显示秒数；最后 5s 进入 alert（3 个 1.667s 循环正好结束）。
+    for (const clock of document.querySelectorAll('.turn-clock')) {
+      const valueNode = clock.querySelector('b');
+      if (valueNode) valueNode.textContent = clockValue === null ? '' : String(clockValue);
+      clock.classList.toggle('alert', turnRemaining !== null && turnRemaining <= 5);
     }
     if (turnNode) {
       turnNode.hidden = turnRemaining === null;
@@ -3897,6 +3915,7 @@
       const enabled = Boolean(room[key]);
       el[buttonId].disabled = !canEdit;
       el[buttonId].classList.toggle('on', enabled);
+      el[buttonId].closest('.result-rule-row')?.classList.toggle('is-on', enabled);
       el[buttonId].setAttribute('aria-checked', enabled ? 'true' : 'false');
       el[buttonId].title = canEdit ? '点击切换下一局规则' : '只有房主可以修改';
       el[labelId].textContent = enabled ? '开启' : '关闭';
@@ -4431,7 +4450,7 @@
       seat: null,
       eyebrow: '基础规则完成',
       title: '牌型与轮次，你已经会了',
-      text: '单牌、对子同类型先比点数，点数相同再比花色；三条、三带二、四带一只比核心点数；顺子点数相同才比最高牌花色；同花先比花色再比点数；同花顺、皇家同花顺按最高牌与花色比较。现在可以查看可选规则，或继续把这局打完。',
+      text: '单牌、对子同类型先比点数，点数相同再比花色；三条、三带二、四带一只比核心点数；顺子点数相同才比最高牌花色；同花先比花色再比点数；同花顺、皇家同花顺按最高牌与花色比较。现在可以继续把这局打完，或退出教程；顶栏的「可选规则」随时可以查看。',
       rule: '前两名同阵营 → 该阵营胜；否则第 3 名与第 1 名同阵营 → 其胜；否则平局。双地主进前二 → 地主胜，否则农民胜。',
       turn: '基础规则完成',
       played: [],
@@ -4589,13 +4608,9 @@
       title: '借风',
       text: '两张身份牌都公开后，出完牌者最后一手无人接时，改由其仍在场的队友领出；队友不在时按正常下家领出。',
     },
-    scoring: {
-      title: '积分',
-      text: '底分 2 分：三条 +1，顺子 / 同花 +2，三带二 / 四带一 +3；同花顺最终 ×2，皇家最终 ×4。多局累计，按赢家本场分比例分奖池。',
-    },
   };
 
-  const TUTORIAL_RULE_KEYS = ['tribute', 'borrow', 'scoring'];
+  const TUTORIAL_RULE_KEYS = ['tribute', 'borrow'];
 
   function tutorialCardById(id) {
     return CARD_CATALOG.find((entry) => entry.id === id);
@@ -4910,9 +4925,10 @@
     el['tutorial-scene-eyebrow'].textContent = scene.eyebrow;
     el['tutorial-scene-title'].textContent = scene.title;
     el['tutorial-scene-text'].textContent = scene.text;
+    // 基础完成 checkpoint：直接继续完整对局，或退出教程；可选规则改由顶栏按钮进入。
     el['tutorial-scene-actions'].innerHTML = `
-      <button type="button" class="secondary-btn" data-tutorial-rules-open>查看可选规则</button>
       <button type="button" class="primary-btn" data-tutorial-continue>继续完成对局</button>
+      <button type="button" class="secondary-btn" data-tutorial-exit>退出教程</button>
     `;
     el['tutorial-rule-pop'].hidden = false;
   }
@@ -5536,10 +5552,10 @@
     el['tutorial-rule-actions'].hidden = viewed.size < TUTORIAL_RULE_KEYS.length;
     const last = app.tutorialRuleLast ? TUTORIAL_RULE_INFO[app.tutorialRuleLast] : null;
     const progress = viewed.size === 0
-      ? '逐条点开「供牌 / 借风 / 积分」，三条都看完就能选择下一步。'
+      ? '逐条点开「供牌 / 借风」，两条都看完就能选择下一步。'
       : viewed.size < TUTORIAL_RULE_KEYS.length
         ? `已看 ${viewed.size} / ${TUTORIAL_RULE_KEYS.length} 条，再点开剩下的规则。`
-        : '三条可选规则都看完了，可以结束教程或继续完成对局。';
+        : '两条可选规则都看完了，可以结束教程或继续完成对局。';
     el['tutorial-rule-detail'].innerHTML = `
       <p class="tutorial-rule-progress">${esc(progress)}</p>
       ${last ? `<h3>${esc(last.title)}</h3><p>${esc(last.text)}</p>` : ''}
@@ -5553,6 +5569,10 @@
     }
     if (event.target.closest('[data-tutorial-rules-open]')) {
       openTutorialRules();
+      return;
+    }
+    if (event.target.closest('[data-tutorial-exit]')) {
+      closeTutorialMatch();
       return;
     }
     if (event.target.closest('[data-tutorial-finish]')) {

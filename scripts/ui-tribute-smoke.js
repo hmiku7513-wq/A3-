@@ -211,6 +211,22 @@ async function main() {
           document.getElementById('tribute-confirm-btn').click();
           return true;
         })()`);
+        // 被挑走的牌保留灰牌 + 挑选者角标，角标尺寸必须够大（>=24px）。
+        await page.waitFor(
+          "document.querySelectorAll('#tribute-pool .tribute-card-picker').length > 0",
+          4000,
+          'picked picker badge',
+        );
+        const pickerBox = await page.evaluate(`(() => {
+          const badge = document.querySelector('#tribute-pool .tribute-card-picker');
+          if (!badge) return null;
+          const rect = badge.getBoundingClientRect();
+          const avatar = badge.firstElementChild?.getBoundingClientRect();
+          return { width: Math.round(rect.width), height: Math.round(rect.height), avatar: Math.round(avatar?.width || 0) };
+        })()`);
+        if (!pickerBox || pickerBox.height < 24 || pickerBox.avatar < 24) {
+          throw new Error(`picked picker badge too small: ${JSON.stringify(pickerBox)}`);
+        }
       } else if (state.hand > 0) {
         seen.add('return');
         const match = state.confirm.match(/(\d+)\/(\d+)/);
