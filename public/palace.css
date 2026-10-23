@@ -11446,3 +11446,76 @@ body.theme-dark .theme-toggle-btn{color:#c8ddff;border-color:rgba(143,180,230,.5
 #restart-hint{display:none!important}
 .audio-settings-sub,.audio-settings-hint,.audio-setting-copy span{display:none!important}
 @media(max-width:760px){.theme-toggle-btn{min-width:34px;height:34px;font-size:17px}}
+
+/* Audio volume rows and larger note icon in game topbar. */
+.audio-volume-line{display:flex;align-items:center;gap:10px;padding:0 14px 4px;margin-top:-7px}
+.audio-volume{flex:1;height:18px;accent-color:#e0a92f;cursor:pointer}
+.audio-volume-line output{min-width:42px;color:#ffe6a1;font:700 11px/1 Georgia,serif;text-align:right}
+.game-stage .game-topbar .icon-only-btn.audio-note-btn{font-size:27px;line-height:.9;font-family:Georgia,"Times New Roman",serif}
+.private-id-emblem{display:grid;place-items:center;color:#e7b84f}
+.private-id-card-panel.farmer .private-id-emblem{color:#8fbd73}
+.private-id-emblem svg{display:block;width:58px;height:58px;fill:currentColor;stroke:none;filter:drop-shadow(0 2px 2px rgba(0,0,0,.2))}
+@media(max-width:760px){.game-stage .game-topbar .icon-only-btn.audio-note-btn{font-size:23px}.private-id-emblem svg{width:48px;height:48px}}
+.audio-volume-line output{color:#6f4309;font-size:12px;font-weight:900;background:rgba(255,255,255,.28);padding:2px 5px;border-radius:5px}
+
+/* Match home/room note icon size to the in-game topbar note. */
+.landing-header-actions .audio-note-btn,
+.header-actions .audio-note-btn{font-size:27px}
+@media(max-width:760px){.landing-header-actions .audio-note-btn,.header-actions .audio-note-btn{font-size:23px}}
+
+/* Keep the audio settings card inside short mobile landscape viewports. */
+.audio-settings-modal{padding:8px}
+.audio-settings-card{max-height:calc(100dvh - 16px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+@media(max-height:560px){
+  .audio-settings-card{padding:16px 18px 14px;max-height:calc(100dvh - 16px)}
+  .audio-settings-card h2{font-size:24px;margin:4px 0 10px}
+  .audio-setting-list{gap:6px}
+  .audio-setting-row{padding:8px 10px;border-radius:9px}
+  .audio-setting-copy b{font-size:12px}
+  .audio-slider-track{width:48px;height:25px}
+  .audio-slider-thumb{width:17px;height:17px;top:3px;left:3px}
+  .audio-slider input:checked + .audio-slider-track .audio-slider-thumb{transform:translateX(23px)}
+  .audio-volume-line{padding:0 10px 2px;margin-top:-4px}
+  .audio-volume{height:14px}
+}
+
+/* Approved identity emblems: gold official hat / red tractor, one colour each. */
+.private-id-emblem{color:#9a5d10!important}
+.private-id-card-panel.farmer .private-id-emblem{color:#a33a2f!important}
+/* After deselecting, let the card fall back to its original slot instead of staying hovered. */
+.game-stage .hand-card:not(.selected):hover{transform:none;box-shadow:0 4px 0 rgba(2,16,34,.22),0 10px 18px rgba(0,0,0,.22)}
+/* Self-panel trust state: plain large text on the right, no badge chrome. */
+.game-stage .self-pod{position:relative}
+/* Played-card callout: cards only, centered in the frame. */
+.play-fx{justify-content:center;gap:0}
+/* Center glyphs in every round/rect topbar control. */
+.icon-only-btn,.audio-note-btn,.theme-toggle-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;padding:0;text-align:center;box-sizing:border-box}
+.icon-text-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;text-align:center;box-sizing:border-box}
+.game-stage .game-topbar .icon-only-btn,.game-stage .game-topbar .icon-text-btn{display:inline-flex;align-items:center;justify-content:center;line-height:1;text-align:center;box-sizing:border-box}
+.private-id-emblem{display:grid;place-items:center;align-content:center;justify-content:center;padding:0}
+.private-id-emblem svg{width:44px;height:44px;margin:auto}
+.private-id-card-panel.landlord .private-id-emblem svg{transform:translateY(3px)}
+.private-id-card-panel.farmer .private-id-emblem svg{transform:translateY(-2px)}
+@media(max-width:760px){.private-id-emblem svg{width:38px;height:38px}}
+/* Initial asset-loading veil: keep the landing hidden until BGM/SFX are fetched. */
+.loading-screen{position:fixed;inset:0;z-index:500;display:grid;place-content:center;justify-items:center;gap:16px;background:radial-gradient(circle at 50% 18%,#1f5f82 0%,#08243d 46%,#03101f 100%);color:#fff1bd;transition:opacity .45s ease,visibility .45s ease}
+.loading-screen.is-hidden{opacity:0;visibility:hidden;pointer-events:none}
+.loading-crest{display:flex;gap:12px;color:#ffd860;font:900 24px/1 Georgia,serif;text-shadow:0 0 18px rgba(255,208,65,.4);animation:loadingBreath 1.6s ease-in-out infinite}
+.loading-crest span:nth-child(2),.loading-crest span:nth-child(4){color:#d94d3f}
+.loading-title{margin:0;font:900 24px/1.2 Georgia,"Microsoft YaHei",serif;color:#fff4c9;letter-spacing:.12em}
+.loading-orbit{width:42px;height:42px;border:3px solid rgba(255,224,122,.22);border-top-color:#ffe078;border-right-color:#e2a72d;border-radius:50%;animation:loadingSpin .85s linear infinite}
+.loading-note{margin:0;color:#a9c9de;font-size:12px;letter-spacing:.12em}
+@keyframes loadingSpin{to{transform:rotate(360deg)}}
+@keyframes loadingBreath{0%,100%{opacity:.65;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){.loading-crest,.loading-orbit{animation:none}}
+
+/* Align the game topbar audio/theme controls with the other topbar buttons. */
+.game-stage .game-topbar .icon-only-btn.audio-note-btn,
+.game-stage .game-topbar .icon-only-btn.theme-toggle-btn{width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border-radius:10px;line-height:1}
+.game-stage .game-topbar .icon-only-btn.audio-note-btn{font-size:22px}
+.game-stage .game-topbar .icon-only-btn.theme-toggle-btn{font-size:17px}
+@media(max-width:760px){.game-stage .game-topbar .icon-only-btn.audio-note-btn,.game-stage .game-topbar .icon-only-btn.theme-toggle-btn{width:30px;height:30px;min-width:30px;min-height:30px}.game-stage .game-topbar .icon-only-btn.audio-note-btn{font-size:20px}.game-stage .game-topbar .icon-only-btn.theme-toggle-btn{font-size:16px}}
+@media(max-width:600px){.game-stage .game-topbar .icon-only-btn.audio-note-btn,.game-stage .game-topbar .icon-only-btn.theme-toggle-btn{width:28px;height:28px;min-width:28px;min-height:28px}.game-stage .game-topbar .icon-only-btn.audio-note-btn{font-size:18px}}
+/* Home/room note glyph matches the in-game note glyph size. */
+.landing-header-actions .audio-note-btn,.header-actions .audio-note-btn{font-size:22px}
+@media(max-width:760px){.landing-header-actions .audio-note-btn,.header-actions .audio-note-btn{font-size:20px}}

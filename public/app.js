@@ -41,6 +41,7 @@
   const BGM_KEY = 'a3.bgm';
   const SFX_KEY = 'a3.sfx';
   const THEME_KEY = 'a3.dark';
+  const VOLUME_KEY = 'a3.volume';
   const AVATAR_KEY = 'a3.avatar';
   // 客户端压缩目标:文件 ≤2MB,输出 dataUrl 估算 ≤100KB(服务端上限 140KB)。
   const AVATAR_MAX_INPUT_BYTES = 2 * 1024 * 1024;
@@ -58,6 +59,9 @@
   ];
   const GIFT_ICONS = { flower: '🌹', egg: '🥚' };
   const GIFT_LANDING_ICONS = { flower: '💐', egg: '💥' };
+
+  const IDENTITY_EMBLEM_LANDLORD = `<svg viewBox="0 0 128 128" aria-hidden="true"><path fill="currentColor" d="M19 77c1-28 19-46 45-46s44 18 45 46H19zm-7 0h104c3 0 5 2 5 5v9c0 4-3 7-7 7H14c-4 0-7-3-7-7v-9c0-3 2-5 5-5z"/><circle cx="64" cy="26" r="4.5"/><path d="M52 92h24v4H52z"/></svg>`;
+  const IDENTITY_EMBLEM_FARMER = `<svg viewBox="0 0 128 128" aria-hidden="true"><mask id="a3-tractor-cut"><rect width="128" height="128" fill="#fff"/><circle cx="42" cy="91" r="14" fill="#000"/><circle cx="102" cy="96" r="9" fill="#000"/></mask><g fill="currentColor" mask="url(#a3-tractor-cut)"><path d="M20 58h79a6 6 0 0 1 6 6v25H20z"/><path d="M27 58V31h39l9 27z"/><path d="M20 58l-9 10h15z"/><rect x="92" y="33" width="8" height="44" rx="4" transform="rotate(12 96 55)"/><circle cx="42" cy="91" r="26"/><circle cx="102" cy="96" r="19"/></g></svg>`;
 
   const $ = (id) => document.getElementById(id);
   const esc = (value) =>
@@ -92,6 +96,11 @@
   }
 
   const savedSession = loadSession();
+  const savedVolume = loadJson(VOLUME_KEY) || {};
+  const volumeValue = (key) => {
+    const value = Number(savedVolume[key]);
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 100;
+  };
   const app = {
     ws: null,
     connected: false,
@@ -122,11 +131,16 @@
     bgmSound: localStorage.getItem(BGM_KEY) !== 'off',
     sfxSound: localStorage.getItem(SFX_KEY) !== 'off',
     darkMode: localStorage.getItem(THEME_KEY) === 'on',
+    masterVolume: volumeValue('master'),
+    bgmVolume: volumeValue('bgm'),
+    sfxVolume: volumeValue('sfx'),
     audioCtx: null,
     offlineCtx: null,
     sfxRaw: new Map(),
     sfxBuffers: new Map(),
     sfxLoading: new Set(),
+    bgmBlobUrls: new Map(),
+    bgmFetching: new Set(),
     reconnectTimer: null,
     reconnectAttempts: 0,
     reconnectingSession: false,
@@ -210,6 +224,8 @@
       'home-audio-btn', 'room-audio-btn',
       'home-theme-btn', 'room-theme-btn', 'game-theme-btn',
       'audio-settings-modal', 'audio-master-toggle', 'audio-bgm-toggle', 'audio-sfx-toggle',
+      'audio-master-volume', 'audio-bgm-volume', 'audio-sfx-volume',
+      'audio-master-volume-value', 'audio-bgm-volume-value', 'audio-sfx-volume-value',
       'audio-settings-hint',
       'game-log-btn', 'game-counter-btn', 'game-trust-btn', 'single-counter-btn',
       'single-tribute-btn', 'single-borrow-btn', 'game-fullscreen-btn', 'game-result-btn', 'game-leave-btn',
@@ -348,7 +364,6 @@
     el['tribute-range'].addEventListener('change', sendSettingsFromRanges);
 
     el['hint-btn'].addEventListener('click', useHint);
-    el['game-fullscreen-btn'].addEventListener('click', toggleFullscreen);
     el['tribute-fullscreen-btn'].addEventListener('click', toggleFullscreen);
     el['orientation-fullscreen-btn'].addEventListener('click', () => {
       // guard 里的“进入全屏”属于用户手势，直接尝试全屏 + 锁横屏。
@@ -473,6 +488,9 @@
     el['audio-master-toggle'].addEventListener('change', () => setMasterSound(el['audio-master-toggle'].checked));
     el['audio-bgm-toggle'].addEventListener('change', () => setBgmEnabled(el['audio-bgm-toggle'].checked));
     el['audio-sfx-toggle'].addEventListener('change', () => setSfxEnabled(el['audio-sfx-toggle'].checked));
+    for (const [id, key] of [['audio-master-volume', 'master'], ['audio-bgm-volume', 'bgm'], ['audio-sfx-volume', 'sfx']]) {
+      el[id].addEventListener('input', () => setVolume(key, el[id].value));
+    }
     on('emote-btn', 'click', (event) => {
       event.stopPropagation();
       toggleEmoteMenu();
@@ -599,10 +617,10 @@
   }
 
   const BGM_TRACKS = {
-    global: '/assets/bgm/0054.mp3',
-    match: '/assets/bgm/0008.mp3',
-    report: '/assets/bgm/0129.mp3',
-    result: '/assets/bgm/0037.mp3',
+    global: '/assets/bgm/0054.mp3?v=web48',
+    match: '/assets/bgm/0008.mp3?v=web90',
+    report: '/assets/bgm/0129.mp3?v=web48',
+    result: '/assets/bgm/0037.mp3?v=web48',
   };
   const PLAY_SFX = {
     single: 'play_single',
@@ -618,7 +636,7 @@
   const SFX_IDS = [
     ...Object.values(PLAY_SFX),
     'finish_hand', 'round_win', 'round_lose', 'deck_shuffle', 'deal_card', 'select_card',
-    'first_round_start', 'round_draw',
+    'first_round_start', 'round_draw', 'identity_landlord',
     'tribute_start', 'tribute_pick', 'tribute_confirm', 'tribute_send',
     'tribute_receive', 'tribute_return_send', 'tribute_return_receive',
     'tribute_complete', 'tribute_timeout', 'borrow_wind_activate',
@@ -626,15 +644,36 @@
   let bgmAudio = null;
   let bgmKey = '';
 
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function fetchWithRetry(url, attempts = 3) {
+    let lastError = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        const response = await fetch(url, { cache: 'force-cache', signal: controller.signal });
+        if (!response.ok) throw new Error(String(response.status));
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (attempt + 1 < attempts) await wait(600 + attempt * 600);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError || new Error('fetch failed');
+  }
+
   function prefetchSfx() {
+    const jobs = [];
     for (const id of SFX_IDS) {
       if (app.sfxRaw.has(id) || app.sfxBuffers.has(id) || app.sfxLoading.has(id)) continue;
       app.sfxLoading.add(id);
-      fetch(`/sound-assets/${id}.wav?v=20261023p0final`)
-        .then((response) => {
-          if (!response.ok) throw new Error(String(response.status));
-          return response.arrayBuffer();
-        })
+      jobs.push(fetchWithRetry(`/sound-assets/${id}.wav?v=20261023p0final`)
+        .then((response) => response.arrayBuffer())
         .then((buffer) => {
           app.sfxRaw.set(id, buffer);
           app.sfxLoading.delete(id);
@@ -646,8 +685,9 @@
             decodeSfx(app.audioCtx || app.offlineCtx);
           } catch {}
         })
-        .catch(() => { app.sfxLoading.delete(id); });
+        .catch(() => { app.sfxLoading.delete(id); }));
     }
+    return Promise.allSettled(jobs);
   }
 
   function decodeSfx(ctx) {
@@ -660,10 +700,28 @@
     }
   }
 
+  async function prefetchBgm() {
+    // Keep URL changes stable while loading all four tracks in parallel.
+    const jobs = ['global', 'match', 'report', 'result'].map(async (key) => {
+      if (app.bgmBlobUrls.has(key) || app.bgmFetching.has(key)) return;
+      const url = BGM_TRACKS[key];
+      app.bgmFetching.add(key);
+      try {
+        const response = await fetchWithRetry(url);
+        const blob = await response.blob();
+        app.bgmBlobUrls.set(key, URL.createObjectURL(blob));
+      } catch {}
+      app.bgmFetching.delete(key);
+      if (bgmWanted() === key) syncBgm();
+    });
+    await Promise.allSettled(jobs);
+  }
+
   function sfxFor(kind, detail) {
     if (kind === 'play') return PLAY_SFX[detail] || 'play_single';
     const table = {
       finish: 'finish_hand',
+      identityCard: 'identity_landlord',
       win: 'round_win',
       lose: 'round_lose',
       deal: 'deck_shuffle',
@@ -698,9 +756,9 @@
       const source = ctx.createBufferSource();
       const gain = ctx.createGain();
       source.buffer = buffer;
-      gain.gain.value = volume;
       source.connect(gain);
       gain.connect(ctx.destination);
+      gain.gain.value = Math.max(0, Math.min(1, volume * (app.masterVolume / 100) * (app.sfxVolume / 100)));
       source.start(0);
       return true;
     } catch {
@@ -711,11 +769,11 @@
   function bgmWanted() {
     if (el['result-modal'] && !el['result-modal'].hidden) return 'result';
     if (app.currentScreen === 'game' || app.currentScreen === 'tribute') {
-      const me = app.room;
-      const reported = app.reportAnnounced && app.reportAnnounced.size > 0;
-      const lowHand = Boolean(me && Array.isArray(me.players)
-        && me.players.some((player) => Number(player.handCount) === 1 || Number(player.handCount) === 2));
-      return reported || lowHand ? 'report' : 'match';
+      const room = app.room;
+      const lowHand = Boolean(room && Array.isArray(room.players)
+        && room.players.some((player) => !player.finished
+          && (Number(player.handCount) === 1 || Number(player.handCount) === 2)));
+      return lowHand ? 'report' : 'match';
     }
     return 'global';
   }
@@ -726,6 +784,7 @@
       bgmAudio.loop = true;
       bgmAudio.volume = 0.32;
       bgmAudio.preload = 'auto';
+      bgmAudio.autoplay = true;
     }
     return bgmAudio;
   }
@@ -736,11 +795,16 @@
       return;
     }
     const wanted = bgmWanted();
-    const track = BGM_TRACKS[wanted];
-    if (!track) return;
+    const track = app.bgmBlobUrls.get(wanted);
+    if (!track) {
+      prefetchBgm();
+      return;
+    }
     const player = ensureBgm();
-    player.volume = wanted === 'result' ? 0.58 : 0.32;
-    if (bgmKey !== wanted) {
+    const bgmGain = (app.masterVolume / 100) * (app.bgmVolume / 100);
+    player.volume = Math.max(0, Math.min(1, (wanted === 'result' ? 0.58 : 0.32) * bgmGain));
+    const resolvedTrack = new URL(track, location.href).href;
+    if (bgmKey !== wanted || player.src !== resolvedTrack) {
       bgmKey = wanted;
       player.src = track;
     }
@@ -838,6 +902,26 @@
     updateSoundUi();
   }
 
+  function saveVolumes() {
+    try {
+      localStorage.setItem(VOLUME_KEY, JSON.stringify({
+        master: app.masterVolume,
+        bgm: app.bgmVolume,
+        sfx: app.sfxVolume,
+      }));
+    } catch {}
+  }
+
+  function setVolume(kind, value) {
+    const next = Math.max(0, Math.min(100, Number(value) || 0));
+    if (kind === 'master') app.masterVolume = next;
+    else if (kind === 'bgm') app.bgmVolume = next;
+    else app.sfxVolume = next;
+    saveVolumes();
+    updateAudioSettingsUi();
+    syncBgm();
+  }
+
   function updateAudioSettingsUi() {
     if (!el['audio-master-toggle']) return;
     el['audio-master-toggle'].checked = app.sound;
@@ -846,6 +930,12 @@
     el['audio-bgm-toggle'].setAttribute('aria-checked', String(app.bgmSound));
     el['audio-sfx-toggle'].checked = app.sfxSound;
     el['audio-sfx-toggle'].setAttribute('aria-checked', String(app.sfxSound));
+    for (const [kind, value] of [['master', app.masterVolume], ['bgm', app.bgmVolume], ['sfx', app.sfxVolume]]) {
+      const range = el[`audio-${kind}-volume`];
+      const output = el[`audio-${kind}-volume-value`];
+      if (range) range.value = String(value);
+      if (output) output.textContent = `${Math.round(value)}%`;
+    }
     const hint = el['audio-settings-hint'];
     if (hint) {
       hint.textContent = !app.sound
@@ -901,6 +991,14 @@
     app.darkMode = !app.darkMode;
     localStorage.setItem(THEME_KEY, app.darkMode ? 'on' : 'off');
     applyTheme();
+  }
+
+  function closeLoadingScreen() {
+    const screen = document.getElementById('loading-screen');
+    if (!screen) return;
+    screen.classList.add('is-hidden');
+    setTimeout(() => { screen.hidden = true; }, 520);
+    syncBgm();
   }
 
   function connect() {
@@ -1457,7 +1555,6 @@
     layer.hidden = false;
     layer.innerHTML = `
       <div class="play-fx">
-        <div class="play-fx-name">${esc(player?.name || '玩家')} 出牌</div>
         <div class="play-fx-cards">
           ${cards.map((card) => {
             const suit = SUITS[card.suit] || SUITS.s;
@@ -1466,7 +1563,6 @@
             </span>`;
           }).join('')}
         </div>
-        <div class="play-fx-combo">${esc(event.combo?.label || '出牌')} · ${esc(words)}</div>
       </div>
     `;
     playSound('play', event.combo?.type || 'single');
@@ -1606,6 +1702,7 @@
     const layer = el['role-claim-layer'];
     if (!layer) return;
     const player = playerAtSeat(event.seat);
+    playSound('identityCard');
     layer.hidden = false;
     const banner = document.createElement('div');
     banner.className = 'role-claim-banner landlord-claim';
@@ -2638,7 +2735,7 @@
   function updateFullscreenUi() {
     const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
     if (active) closeFullscreenTip();
-    for (const button of [el['game-fullscreen-btn'], el['tribute-fullscreen-btn']]) {
+    for (const button of [el['tribute-fullscreen-btn']]) {
       if (!button) continue;
       button.textContent = active ? '⤢' : '⛶';
       button.title = active ? '退出全屏' : '全屏';
@@ -3331,19 +3428,17 @@
     return cardId === 'sA' || cardId === 's3';
   }
 
-  function playerBadges(player, skipIdentity = false) {
+  function playerBadges(player, skipIdentity = false, skipTrust = false) {
     const badges = [];
     if (player.isBot) badges.push('<span class="badge bot-badge">电脑</span>');
-    if (player.autoPlay && !player.isBot) badges.push('<span class="badge trust-badge">托管中</span>');
+    if (player.autoPlay && !player.isBot && !skipTrust) badges.push('<span class="badge trust-badge">托管中</span>');
     if (player.connected === false) badges.push('<span class="badge offline-badge">离线</span>');
     if (player.finished) {
       badges.push(`<span class="badge finish-badge">第 ${player.place} 顺位</span>`);
     }
     if (!skipIdentity && player.landlordRevealed) {
       badges.push(`
-        <span class="badge landlord-badge">♛ ${player.doubleRevealed ? '双地主' : '地主'}
-          <span class="mini-identities">${player.revealedIdentityCards.map(miniIdentity).join('')}</span>
-        </span>
+        <span class="badge landlord-badge">${player.doubleRevealed ? '双地主' : '地主'}</span>
       `);
     } else if (!skipIdentity && player.farmerRevealed) {
       badges.push('<span class="badge farmer-badge">农民</span>');
@@ -3429,11 +3524,12 @@
     layer.hidden = false;
     layer.innerHTML = `
       <div class="private-id-card-panel ${landlord ? 'landlord' : 'farmer'}">
-        <span class="private-id-emblem">${landlord ? '♛' : '❧'}</span>
+        <span class="private-id-emblem">${landlord ? IDENTITY_EMBLEM_LANDLORD : IDENTITY_EMBLEM_FARMER}</span>
         <h2>${landlord ? (double ? '你是双地主' : '你是地主') : '你是农民'}</h2>
         ${cards ? `<div class="private-id-cards">${cards}</div>` : '<div class="private-id-seal">农</div>'}
       </div>
     `;
+    playSound('identityCard');
     speakLine(landlord ? (double ? '你是双地主' : '你是地主') : '你是农民', { rate: 0.98, pitch: landlord ? 0.92 : 1.15 });
     clearTimeout(app.privateIdentityTimer);
     app.privateIdentityTimer = setTimeout(() => {
@@ -5895,9 +5991,13 @@
   function init() {
     cacheElements();
     bindEvents();
-    prefetchSfx();
+    const initialAssets = Promise.allSettled([prefetchSfx(), prefetchBgm()]);
     updateSoundUi();
     applyTheme();
+    window.addEventListener('load', () => {
+      Promise.allSettled([initialAssets, new Promise((resolve) => setTimeout(resolve, 500))])
+        .then(closeLoadingScreen);
+    });
     updateFullscreenUi();
     updateStageScale();
     // 竖屏首次加载先静默尝试一次锁横屏（无手势时通常会失败，失败保留 guard）。

@@ -1779,7 +1779,7 @@ async function serveStatic(request, response) {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'same-origin',
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ws: wss:; font-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
     });
     if (request.method === 'HEAD') {
       response.end();

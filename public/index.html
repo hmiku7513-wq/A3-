@@ -18,11 +18,18 @@
   <title>A3 · 欢乐暗牌</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/happy.css">
-  <link rel="stylesheet" href="/palace.css">
+  <link rel="stylesheet" href="/palace.css?v=20261023e">
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
   <div class="noise" aria-hidden="true"></div>
+
+  <div id="loading-screen" class="loading-screen" role="status" aria-live="polite">
+    <div class="loading-crest" aria-hidden="true"><span>♠</span><span>♥</span><span>♣</span><span>♦</span></div>
+    <p class="loading-title">正在铺开牌桌…</p>
+    <span class="loading-orbit" aria-hidden="true"></span>
+    <p class="loading-note">把宫灯点亮，等牌局入席</p>
+  </div>
 
   <main id="app">
     <section id="screen-landing" class="screen landing-screen is-active" aria-label="A3 大厅">
@@ -222,7 +229,6 @@
           <button id="single-borrow-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式借风规则开关" hidden>借风</button>
           <button id="game-sound-btn" type="button" class="icon-only-btn audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
           <button id="game-theme-btn" type="button" class="icon-only-btn theme-toggle-btn" title="暗色模式" aria-label="切换暗色模式">☾</button>
-          <button id="game-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button id="emote-btn" type="button" class="icon-only-btn emote-btn" title="表情互动" aria-label="表情互动" aria-haspopup="true" aria-expanded="false">☺</button>
           <button type="button" class="icon-text-btn" data-open-rules>玩法</button>
           <button id="game-leave-btn" type="button" class="icon-only-btn danger-text" title="离开牌桌" aria-label="离开牌桌">×</button>
@@ -382,6 +388,10 @@
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
         </div>
+        <div class="audio-volume-line">
+          <input id="audio-master-volume" class="audio-volume" type="range" min="0" max="100" step="1" value="100" aria-label="全局音量">
+          <output id="audio-master-volume-value" for="audio-master-volume">100%</output>
+        </div>
         <div class="audio-setting-row">
           <div class="audio-setting-copy"><b>背景音乐</b></div>
           <label class="audio-slider" aria-label="背景音乐">
@@ -389,12 +399,20 @@
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
         </div>
+        <div class="audio-volume-line">
+          <input id="audio-bgm-volume" class="audio-volume" type="range" min="0" max="100" step="1" value="100" aria-label="背景音乐音量">
+          <output id="audio-bgm-volume-value" for="audio-bgm-volume">100%</output>
+        </div>
         <div class="audio-setting-row">
           <div class="audio-setting-copy"><b>游戏音效</b></div>
           <label class="audio-slider" aria-label="游戏音效">
             <input id="audio-sfx-toggle" type="checkbox" role="switch" aria-checked="true">
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
+        </div>
+        <div class="audio-volume-line">
+          <input id="audio-sfx-volume" class="audio-volume" type="range" min="0" max="100" step="1" value="100" aria-label="游戏音效音量">
+          <output id="audio-sfx-volume-value" for="audio-sfx-volume">100%</output>
         </div>
       </div>
     </div>
@@ -709,6 +727,6 @@
     </div>
   </template>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=20261023e" defer></script>
 </body>
 </html>
