@@ -32,6 +32,7 @@
           <span class="brand-sub">欢乐暗牌</span>
         </a>
         <div class="landing-header-actions">
+          <button id="home-audio-btn" type="button" class="audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
           <span id="connection-text" class="connection-text"><span class="dot"></span>正在连接</span>
         </div>
       </header>
@@ -93,6 +94,7 @@
           <span class="brand-sub">好友牌桌</span>
         </div>
         <div class="header-actions">
+          <button id="room-audio-btn" type="button" class="audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
           <button type="button" class="icon-text-btn" data-open-rules><span aria-hidden="true">?</span> 玩法</button>
           <button id="leave-room-btn" type="button" class="icon-text-btn danger-text"><span aria-hidden="true">←</span> 溜了</button>
         </div>
@@ -215,7 +217,7 @@
           <button id="single-counter-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式记牌器开关" hidden>记牌</button>
           <button id="single-tribute-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式供牌规则开关" hidden>供牌</button>
           <button id="single-borrow-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式借风规则开关" hidden>借风</button>
-          <button id="game-sound-btn" type="button" class="icon-only-btn" title="切换音效" aria-label="切换音效">音</button>
+          <button id="game-sound-btn" type="button" class="icon-only-btn audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
           <button id="game-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button id="emote-btn" type="button" class="icon-only-btn emote-btn" title="表情互动" aria-label="表情互动" aria-haspopup="true" aria-expanded="false">☺</button>
           <button type="button" class="icon-text-btn" data-open-rules>玩法</button>
@@ -359,6 +361,40 @@
       <input id="home-join-code" class="home-join-input" type="text" maxlength="4" inputmode="text" autocomplete="off" spellcheck="false" placeholder="输入 4 位房间号" aria-describedby="home-join-error">
       <p id="home-join-error" class="form-error home-join-error" role="alert" aria-live="assertive"></p>
       <button id="home-join-submit" type="button" class="primary-btn home-join-submit">进入房间</button>
+    </div>
+  </div>
+
+  <div id="audio-settings-modal" class="modal audio-settings-modal" hidden>
+    <div class="modal-backdrop" data-close-audio-settings></div>
+    <div class="modal-card audio-settings-card" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">
+      <button type="button" class="modal-close" data-close-audio-settings aria-label="关闭声音设置">×</button>
+      <p class="eyebrow"><span></span> AUDIO SETTINGS</p>
+      <h2 id="audio-settings-title">声音设置</h2>
+      <p class="audio-settings-sub">宫墙再深，也要留一缕乐声。</p>
+      <div class="audio-setting-list">
+        <div class="audio-setting-row">
+          <div class="audio-setting-copy"><b>全局声音</b><span>所有音乐与音效总开关</span></div>
+          <label class="audio-slider" aria-label="全局声音">
+            <input id="audio-master-toggle" type="checkbox" role="switch" aria-checked="true">
+            <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
+          </label>
+        </div>
+        <div class="audio-setting-row">
+          <div class="audio-setting-copy"><b>背景音乐</b><span>首页、对局与结算 BGM</span></div>
+          <label class="audio-slider" aria-label="背景音乐">
+            <input id="audio-bgm-toggle" type="checkbox" role="switch" aria-checked="true">
+            <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
+          </label>
+        </div>
+        <div class="audio-setting-row">
+          <div class="audio-setting-copy"><b>游戏音效</b><span>出牌、供牌、报单等反馈</span></div>
+          <label class="audio-slider" aria-label="游戏音效">
+            <input id="audio-sfx-toggle" type="checkbox" role="switch" aria-checked="true">
+            <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+      <p class="audio-settings-hint" id="audio-settings-hint">切换后立即生效，并会记住你的选择。</p>
     </div>
   </div>
 

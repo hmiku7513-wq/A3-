@@ -38,6 +38,8 @@
   const SESSION_KEY = 'a3.session.v1';
   const NAME_KEY = 'a3.name';
   const SOUND_KEY = 'a3.sound';
+  const BGM_KEY = 'a3.bgm';
+  const SFX_KEY = 'a3.sfx';
   const AVATAR_KEY = 'a3.avatar';
   // 客户端压缩目标:文件 ≤2MB,输出 dataUrl 估算 ≤100KB(服务端上限 140KB)。
   const AVATAR_MAX_INPUT_BYTES = 2 * 1024 * 1024;
@@ -116,6 +118,8 @@
     resultPollTimer: null,
     serverOffset: 0,
     sound: localStorage.getItem(SOUND_KEY) !== 'off',
+    bgmSound: localStorage.getItem(BGM_KEY) !== 'off',
+    sfxSound: localStorage.getItem(SFX_KEY) !== 'off',
     audioCtx: null,
     reconnectTimer: null,
     reconnectAttempts: 0,
@@ -197,6 +201,9 @@
       'tribute-confirm-btn', 'tribute-hand', 'tribute-waiting',
       'tribute-events',
       'game-room-code', 'game-phase-label', 'game-sound-dot', 'game-sound-btn', 'shared-score',
+      'home-audio-btn', 'room-audio-btn',
+      'audio-settings-modal', 'audio-master-toggle', 'audio-bgm-toggle', 'audio-sfx-toggle',
+      'audio-settings-hint',
       'game-log-btn', 'game-counter-btn', 'game-trust-btn', 'single-counter-btn',
       'single-tribute-btn', 'single-borrow-btn', 'game-fullscreen-btn', 'game-result-btn', 'game-leave-btn',
       'emote-btn', 'emote-menu', 'emote-layer', 'gift-menu',
@@ -320,6 +327,7 @@
     el['borrow-wind-toggle'].addEventListener('click', () => {
       if (!app.room || app.room.phase !== 'lobby' || app.pending) return;
       if (app.room.hostId !== app.room.yourId) return;
+      if (!app.room.borrowWindEnabled) playSound('borrowWind');
       send({ type: 'settings', borrowWindEnabled: !app.room.borrowWindEnabled });
     });
 
@@ -397,6 +405,7 @@
         button.classList.add('selected');
         button.setAttribute('aria-pressed', 'true');
       }
+      playSound('selectCard');
       updateActionArea();
     });
 
@@ -441,7 +450,15 @@
       send({ type: 'settings', borrowWindEnabled: !app.room.borrowWindEnabled });
     });
     el['log-close-btn'].addEventListener('click', closeLog);
-    el['game-sound-btn'].addEventListener('click', toggleSound);
+    el['game-sound-btn'].addEventListener('click', openAudioSettings);
+    el['home-audio-btn'].addEventListener('click', openAudioSettings);
+    el['room-audio-btn'].addEventListener('click', openAudioSettings);
+    for (const node of document.querySelectorAll('[data-close-audio-settings]')) {
+      node.addEventListener('click', closeAudioSettings);
+    }
+    el['audio-master-toggle'].addEventListener('change', () => setMasterSound(el['audio-master-toggle'].checked));
+    el['audio-bgm-toggle'].addEventListener('change', () => setBgmEnabled(el['audio-bgm-toggle'].checked));
+    el['audio-sfx-toggle'].addEventListener('change', () => setSfxEnabled(el['audio-sfx-toggle'].checked));
     on('emote-btn', 'click', (event) => {
       event.stopPropagation();
       toggleEmoteMenu();
@@ -512,6 +529,8 @@
       if (event.key === 'Escape') {
         if (el['fullscreen-tip'] && !el['fullscreen-tip'].hidden) {
           closeFullscreenTip();
+        } else if (el['audio-settings-modal'] && !el['audio-settings-modal'].hidden) {
+          closeAudioSettings();
         } else if (el['home-join-modal'] && !el['home-join-modal'].hidden) {
           closeJoinModal();
         } else if (emoteMenuOpen()) {
@@ -536,7 +555,10 @@
       }
     });
 
-    document.addEventListener('pointerdown', ensureAudio, { once: true });
+    document.addEventListener('pointerdown', () => {
+      ensureAudio();
+      syncBgm();
+    }, { once: true });
     // 首次用户手势里补一次“全屏 + 锁横屏”；失败不打扰，guard 会继续提示。
     document.addEventListener('pointerdown', (event) => {
       if (event.target instanceof Element && event.target.closest('#orientation-fullscreen-btn')) return;
@@ -558,6 +580,108 @@
       return app.audioCtx;
     } catch {
       return null;
+    }
+  }
+
+  const BGM_TRACKS = {
+    global: '/assets/bgm/0054.mp3',
+    match: '/assets/bgm/0008.mp3',
+    report: '/assets/bgm/0129.mp3',
+    result: '/assets/bgm/0037.mp3',
+  };
+  const PLAY_SFX = {
+    single: 'play_single',
+    pair: 'play_pair',
+    trips: 'play_trips',
+    straight: 'play_straight',
+    flush: 'play_flush',
+    full_house: 'play_full_house',
+    four_with_one: 'play_four_with_one',
+    straight_flush: 'play_straight_flush',
+    royal_flush: 'play_royal_flush',
+  };
+  let bgmAudio = null;
+  let bgmKey = '';
+
+  function sfxFor(kind, detail) {
+    if (kind === 'play') return PLAY_SFX[detail] || 'play_single';
+    const table = {
+      finish: 'finish_hand',
+      landlord: 'identity_landlord',
+      doubleLandlord: 'identity_double_landlord',
+      win: 'round_win',
+      lose: 'round_lose',
+      deal: 'deck_shuffle',
+      dealCard: 'deal_card',
+      selectCard: 'select_card',
+      pass: 'pass',
+      firstRound: 'first_round_start',
+      roundDraw: 'round_draw',
+      tributeStart: 'tribute_start',
+      tributePick: 'tribute_pick',
+      tributeConfirm: 'tribute_confirm',
+      tributeSend: 'tribute_send',
+      tributeReceive: 'tribute_receive',
+      tributeReturnSend: 'tribute_return_send',
+      tributeReturnReceive: 'tribute_return_receive',
+      tributeComplete: 'tribute_complete',
+      tributeTimeout: 'tribute_timeout',
+      borrowWind: 'borrow_wind_activate',
+    };
+    return table[kind] || null;
+  }
+
+  function playSample(id, volume = 0.72) {
+    if (!app.sound || !app.sfxSound || !id) return false;
+    try {
+      const sample = new Audio(`/sound-assets/${id}.wav?v=20261023p0final`);
+      sample.volume = volume;
+      sample.play().catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function bgmWanted() {
+    if (el['result-modal'] && !el['result-modal'].hidden) return 'result';
+    if (app.currentScreen === 'game' || app.currentScreen === 'tribute') {
+      const me = app.room;
+      const reported = app.reportAnnounced && app.reportAnnounced.size > 0;
+      const lowHand = Boolean(me && Array.isArray(me.players)
+        && me.players.some((player) => Number(player.handCount) === 1 || Number(player.handCount) === 2));
+      return reported || lowHand ? 'report' : 'match';
+    }
+    return 'global';
+  }
+
+  function ensureBgm() {
+    if (!bgmAudio) {
+      bgmAudio = new Audio();
+      bgmAudio.loop = true;
+      bgmAudio.volume = 0.32;
+      bgmAudio.preload = 'auto';
+    }
+    return bgmAudio;
+  }
+
+  function syncBgm() {
+    if (!app.sound || !app.bgmSound) {
+      if (bgmAudio) bgmAudio.pause();
+      return;
+    }
+    const wanted = bgmWanted();
+    const track = BGM_TRACKS[wanted];
+    if (!track) return;
+    const player = ensureBgm();
+    if (bgmKey !== wanted) {
+      bgmKey = wanted;
+      player.src = track;
+    }
+    if (player.paused) {
+      player.play().catch(() => {
+        // Autoplay may stay blocked until the next pointer/touch.
+      });
     }
   }
 
@@ -585,8 +709,9 @@
     }
   }
 
-  function playSound(kind) {
-    if (!app.sound) return;
+  function playSound(kind, detail = null) {
+    if (!app.sound || !app.sfxSound) return;
+    if (playSample(sfxFor(kind, detail))) return;
     if (kind === 'turn') {
       tone(523.25, 0, 0.14, 0.025);
       tone(659.25, 0.1, 0.2, 0.022);
@@ -619,24 +744,75 @@
     }
   }
 
-  function toggleSound() {
-    app.sound = !app.sound;
+  function setMasterSound(enabled) {
+    app.sound = Boolean(enabled);
     localStorage.setItem(SOUND_KEY, app.sound ? 'on' : 'off');
     updateSoundUi();
     if (app.sound) {
       ensureAudio();
-      playSound('turn');
-      showToast('音效开起来，气氛搞起来！');
-    } else {
-      showToast('音效关掉啦，安静摸牌！');
+      syncBgm();
+    } else if (bgmAudio) {
+      bgmAudio.pause();
     }
   }
 
+  function setBgmEnabled(enabled) {
+    app.bgmSound = Boolean(enabled);
+    localStorage.setItem(BGM_KEY, app.bgmSound ? 'on' : 'off');
+    updateSoundUi();
+    syncBgm();
+  }
+
+  function setSfxEnabled(enabled) {
+    app.sfxSound = Boolean(enabled);
+    localStorage.setItem(SFX_KEY, app.sfxSound ? 'on' : 'off');
+    if (!app.sfxSound && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch {}
+    }
+    updateSoundUi();
+  }
+
+  function updateAudioSettingsUi() {
+    if (!el['audio-master-toggle']) return;
+    el['audio-master-toggle'].checked = app.sound;
+    el['audio-master-toggle'].setAttribute('aria-checked', String(app.sound));
+    el['audio-bgm-toggle'].checked = app.bgmSound;
+    el['audio-bgm-toggle'].setAttribute('aria-checked', String(app.bgmSound));
+    el['audio-sfx-toggle'].checked = app.sfxSound;
+    el['audio-sfx-toggle'].setAttribute('aria-checked', String(app.sfxSound));
+    const hint = el['audio-settings-hint'];
+    if (hint) {
+      hint.textContent = !app.sound
+        ? '全局声音已关闭，音乐与音效都会静音。'
+        : (!app.bgmSound && !app.sfxSound)
+          ? '音乐和音效当前都已关闭。'
+          : '切换后立即生效，并会记住你的选择。';
+    }
+  }
+
+  function openAudioSettings() {
+    updateAudioSettingsUi();
+    el['audio-settings-modal'].hidden = false;
+    syncModalState();
+    const first = el['audio-master-toggle'];
+    if (first) setTimeout(() => first.focus({ preventScroll: true }), 30);
+  }
+
+  function closeAudioSettings() {
+    el['audio-settings-modal'].hidden = true;
+    syncModalState();
+  }
+
   function updateSoundUi() {
-    el['game-sound-btn'].classList.toggle('muted', !app.sound);
-    el['game-sound-btn'].setAttribute('aria-label', app.sound ? '关闭音效' : '开启音效');
-    el['game-sound-btn'].title = app.sound ? '关闭音效' : '开启音效';
-    el['game-sound-dot'].style.display = app.sound ? '' : 'none';
+    const muted = !app.sound || (!app.bgmSound && !app.sfxSound);
+    for (const button of [el['game-sound-btn'], el['home-audio-btn'], el['room-audio-btn']]) {
+      if (!button) continue;
+      button.classList.toggle('muted', muted);
+      button.title = '声音设置';
+      button.setAttribute('aria-label', '声音设置');
+    }
+    if (el['game-sound-dot']) el['game-sound-dot'].style.display = app.sound ? '' : 'none';
+    updateAudioSettingsUi();
   }
 
   function connect() {
@@ -982,6 +1158,7 @@
       el['result-modal'].hidden = true;
       syncModalState();
       app.lastEventId = maxEventId(room.events);
+      if ((room.round || 1) === 1) playSound('firstRound');
       if (app.currentScreen !== 'game') {
         showToast('开局啦！先手必须带 ♦4 哦！', 'gold');
       }
@@ -1016,6 +1193,7 @@
         renderResultRules();
       }
     }
+    syncBgm();
   }
 
   function clearResultPending() {
@@ -1102,6 +1280,8 @@
         queuePlayFx(event);
       } else if (event.type === 'trick') {
         showToast(event.text, '', 2800);
+      } else if (event.type === 'pass' || event.type === 'auto_pass') {
+        playSound('pass');
       } else if (event.type === 'end') {
         // The result modal carries the final message.
       }
@@ -1142,7 +1322,7 @@
   }
 
   function speakPlay(event) {
-    if (!app.sound || !('speechSynthesis' in window)) return;
+    if (!app.sound || !app.sfxSound || !('speechSynthesis' in window)) return;
     const words = playAnnouncement(event);
     if (!words) return;
     try {
@@ -1203,7 +1383,7 @@
         <div class="play-fx-combo">${esc(event.combo?.label || '出牌')} · ${esc(words)}</div>
       </div>
     `;
-    playSound('play');
+    playSound('play', event.combo?.type || 'single');
     speakPlay(event);
     updateActionArea();
     clearTimeout(app.playFxTimer);
@@ -1276,6 +1456,7 @@
       <div class="deal-tip">一张张发，手牌慢慢长起来</div>
     `;
     document.body.classList.add('deal-running');
+    playSound('deal');
     const centerX = window.innerWidth / 2;
     const centerY = Math.max(120, window.innerHeight * 0.36);
     const order = [];
@@ -1288,6 +1469,7 @@
         app.dealCounts[seat] = Math.min(13, (app.dealCounts[seat] || 0) + 1);
         flyDealCard(centerX, centerY, dealTargetRect(seat, room));
         updateDealUi(room);
+        if (index % 8 === 0) playSound('dealCard');
       }, index * step);
       app.dealTimers.push(timer);
     });
@@ -1297,6 +1479,7 @@
       document.body.classList.remove('deal-running');
       layer.hidden = true;
       layer.innerHTML = '';
+      playSound('roundDraw');
       if (onDone) {
         onDone();
         return;
@@ -1384,6 +1567,7 @@
   function showScreen(name) {
     if (app.currentScreen === name) {
       document.body.classList.toggle('in-game', name === 'game' || name === 'tribute');
+      syncBgm();
       return;
     }
     for (const [key, screen] of Object.entries(screens)) {
@@ -1403,6 +1587,8 @@
     if (name === 'landing') {
       document.title = 'A3 · 欢乐暗牌';
     }
+    if (name === 'tribute') playSound('tributeStart');
+    syncBgm();
   }
 
   function updateConnectionUi(status) {
@@ -2804,6 +2990,7 @@
       app.tributeSelection.clear();
       app.tributeSelection.add(id);
     }
+    playSound('tributePick');
     renderTributeSelection();
   }
 
@@ -2886,6 +3073,9 @@
     if (action.type === 'return_select' && cards.length !== action.count) return;
     if (action.type !== 'return_select' && cards.length !== 1) return;
 
+    if (action.type === 'tribute_pick') playSound('tributeConfirm');
+    else if (action.type === 'return_select') playSound('tributeReturnSend');
+    else if (action.type === 'return_pick') playSound('tributeReturnReceive');
     setPending(true);
     if (action.type === 'tribute_pick') {
       send({ type: 'tribute_pick', cardId: cards[0] });
@@ -3094,7 +3284,7 @@
   }
 
   function speakLine(text, { rate = 1.04, pitch = 1.06 } = {}) {
-    if (!app.sound || !('speechSynthesis' in window)) return;
+    if (!app.sound || !app.sfxSound || !('speechSynthesis' in window)) return;
     try {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'zh-CN';
@@ -3118,6 +3308,7 @@
       playSound('report');
       speakLine(`${player.name}，我就剩${player.handCount}张牌啦`, { rate: 0.98, pitch: 0.94 });
     }
+    syncBgm();
   }
 
   function showPrivateIdentity(room) {
@@ -3157,7 +3348,7 @@
         ${cards ? `<div class="private-id-cards">${cards}</div>` : '<div class="private-id-seal">农</div>'}
       </div>
     `;
-    playSound(landlord ? 'landlord' : 'farmer');
+    playSound(double ? 'doubleLandlord' : landlord ? 'landlord' : 'farmer');
     speakLine(landlord ? (double ? '你是双地主' : '你是地主') : '你是农民', { rate: 0.98, pitch: landlord ? 0.92 : 1.15 });
     clearTimeout(app.privateIdentityTimer);
     app.privateIdentityTimer = setTimeout(() => {
@@ -3904,7 +4095,10 @@
     closeEmoteMenu();
     closeGiftMenu();
     syncModalState();
-    playSound('win');
+    const yourTeam = room.yourRole ? (room.yourRole.isLandlord ? 'landlord' : 'farmers') : null;
+    const won = !yourTeam || !result.winner || result.winner === 'draw' || result.winner === yourTeam;
+    playSound(won ? 'win' : 'lose');
+    syncBgm();
   }
 
   function renderResultRules() {
@@ -3962,6 +4156,7 @@
     if (!modal) return;
     modal.hidden = true;
     syncModalState();
+    syncBgm();
     if (app.modalReturnFocus && typeof app.modalReturnFocus.focus === 'function') {
       try {
         app.modalReturnFocus.focus({ preventScroll: true });
@@ -3976,7 +4171,8 @@
       (el['rules-modal'] && !el['rules-modal'].hidden) ||
       (el['result-modal'] && !el['result-modal'].hidden) ||
       (el['counter-modal'] && !el['counter-modal'].hidden) ||
-      (el['home-join-modal'] && !el['home-join-modal'].hidden),
+      (el['home-join-modal'] && !el['home-join-modal'].hidden) ||
+      (el['audio-settings-modal'] && !el['audio-settings-modal'].hidden),
     );
     document.body.classList.toggle('modal-open', open);
   }
