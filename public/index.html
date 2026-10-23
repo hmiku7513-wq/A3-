@@ -5,6 +5,7 @@
   <meta name="description" content="A3 欢乐暗牌 —— 四人在线欢乐牌局。黑桃 A 与黑桃 3 是隐藏的身份牌，进贡还贡、暗藏队友，快乐开打！">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f05a2e">
+  <meta name="color-scheme" content="only light">
   <meta name="screen-orientation" content="landscape">
   <meta name="x5-orientation" content="landscape">
   <meta name="full-screen" content="yes">
@@ -33,6 +34,7 @@
         </a>
         <div class="landing-header-actions">
           <button id="home-audio-btn" type="button" class="audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
+          <button id="home-theme-btn" type="button" class="theme-toggle-btn" title="暗色模式" aria-label="切换暗色模式">☾</button>
           <span id="connection-text" class="connection-text"><span class="dot"></span>正在连接</span>
         </div>
       </header>
@@ -95,6 +97,7 @@
         </div>
         <div class="header-actions">
           <button id="room-audio-btn" type="button" class="audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
+          <button id="room-theme-btn" type="button" class="theme-toggle-btn" title="暗色模式" aria-label="切换暗色模式">☾</button>
           <button type="button" class="icon-text-btn" data-open-rules><span aria-hidden="true">?</span> 玩法</button>
           <button id="leave-room-btn" type="button" class="icon-text-btn danger-text"><span aria-hidden="true">←</span> 溜了</button>
         </div>
@@ -218,6 +221,7 @@
           <button id="single-tribute-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式供牌规则开关" hidden>供牌</button>
           <button id="single-borrow-btn" type="button" class="icon-text-btn single-setting-btn" title="单机模式借风规则开关" hidden>借风</button>
           <button id="game-sound-btn" type="button" class="icon-only-btn audio-note-btn" title="声音设置" aria-label="声音设置">♪</button>
+          <button id="game-theme-btn" type="button" class="icon-only-btn theme-toggle-btn" title="暗色模式" aria-label="切换暗色模式">☾</button>
           <button id="game-fullscreen-btn" type="button" class="icon-only-btn" title="全屏" aria-label="切换全屏">⛶</button>
           <button id="emote-btn" type="button" class="icon-only-btn emote-btn" title="表情互动" aria-label="表情互动" aria-haspopup="true" aria-expanded="false">☺</button>
           <button type="button" class="icon-text-btn" data-open-rules>玩法</button>
@@ -370,31 +374,29 @@
       <button type="button" class="modal-close" data-close-audio-settings aria-label="关闭声音设置">×</button>
       <p class="eyebrow"><span></span> AUDIO SETTINGS</p>
       <h2 id="audio-settings-title">声音设置</h2>
-      <p class="audio-settings-sub">宫墙再深，也要留一缕乐声。</p>
       <div class="audio-setting-list">
         <div class="audio-setting-row">
-          <div class="audio-setting-copy"><b>全局声音</b><span>所有音乐与音效总开关</span></div>
+          <div class="audio-setting-copy"><b>全局声音</b></div>
           <label class="audio-slider" aria-label="全局声音">
             <input id="audio-master-toggle" type="checkbox" role="switch" aria-checked="true">
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
         </div>
         <div class="audio-setting-row">
-          <div class="audio-setting-copy"><b>背景音乐</b><span>首页、对局与结算 BGM</span></div>
+          <div class="audio-setting-copy"><b>背景音乐</b></div>
           <label class="audio-slider" aria-label="背景音乐">
             <input id="audio-bgm-toggle" type="checkbox" role="switch" aria-checked="true">
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
         </div>
         <div class="audio-setting-row">
-          <div class="audio-setting-copy"><b>游戏音效</b><span>出牌、供牌、报单等反馈</span></div>
+          <div class="audio-setting-copy"><b>游戏音效</b></div>
           <label class="audio-slider" aria-label="游戏音效">
             <input id="audio-sfx-toggle" type="checkbox" role="switch" aria-checked="true">
             <span class="audio-slider-track"><span class="audio-slider-thumb"></span></span>
           </label>
         </div>
       </div>
-      <p class="audio-settings-hint" id="audio-settings-hint">切换后立即生效，并会记住你的选择。</p>
     </div>
   </div>
 

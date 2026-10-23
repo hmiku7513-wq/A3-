@@ -40,6 +40,7 @@
   const SOUND_KEY = 'a3.sound';
   const BGM_KEY = 'a3.bgm';
   const SFX_KEY = 'a3.sfx';
+  const THEME_KEY = 'a3.dark';
   const AVATAR_KEY = 'a3.avatar';
   // 客户端压缩目标:文件 ≤2MB,输出 dataUrl 估算 ≤100KB(服务端上限 140KB)。
   const AVATAR_MAX_INPUT_BYTES = 2 * 1024 * 1024;
@@ -120,7 +121,12 @@
     sound: localStorage.getItem(SOUND_KEY) !== 'off',
     bgmSound: localStorage.getItem(BGM_KEY) !== 'off',
     sfxSound: localStorage.getItem(SFX_KEY) !== 'off',
+    darkMode: localStorage.getItem(THEME_KEY) === 'on',
     audioCtx: null,
+    offlineCtx: null,
+    sfxRaw: new Map(),
+    sfxBuffers: new Map(),
+    sfxLoading: new Set(),
     reconnectTimer: null,
     reconnectAttempts: 0,
     reconnectingSession: false,
@@ -202,6 +208,7 @@
       'tribute-events',
       'game-room-code', 'game-phase-label', 'game-sound-dot', 'game-sound-btn', 'shared-score',
       'home-audio-btn', 'room-audio-btn',
+      'home-theme-btn', 'room-theme-btn', 'game-theme-btn',
       'audio-settings-modal', 'audio-master-toggle', 'audio-bgm-toggle', 'audio-sfx-toggle',
       'audio-settings-hint',
       'game-log-btn', 'game-counter-btn', 'game-trust-btn', 'single-counter-btn',
@@ -453,6 +460,13 @@
     el['game-sound-btn'].addEventListener('click', openAudioSettings);
     el['home-audio-btn'].addEventListener('click', openAudioSettings);
     el['room-audio-btn'].addEventListener('click', openAudioSettings);
+    for (const [id, handler] of [
+      ['home-theme-btn', toggleDarkMode],
+      ['room-theme-btn', toggleDarkMode],
+      ['game-theme-btn', toggleDarkMode],
+    ]) {
+      if (el[id]) el[id].addEventListener('click', handler);
+    }
     for (const node of document.querySelectorAll('[data-close-audio-settings]')) {
       node.addEventListener('click', closeAudioSettings);
     }
@@ -577,6 +591,7 @@
         app.audioCtx = new AudioCtor();
       }
       if (app.audioCtx.state === 'suspended') app.audioCtx.resume();
+      decodeSfx(app.audioCtx);
       return app.audioCtx;
     } catch {
       return null;
@@ -600,21 +615,60 @@
     straight_flush: 'play_straight_flush',
     royal_flush: 'play_royal_flush',
   };
+  const SFX_IDS = [
+    ...Object.values(PLAY_SFX),
+    'finish_hand', 'round_win', 'round_lose', 'deck_shuffle', 'deal_card', 'select_card',
+    'first_round_start', 'round_draw',
+    'tribute_start', 'tribute_pick', 'tribute_confirm', 'tribute_send',
+    'tribute_receive', 'tribute_return_send', 'tribute_return_receive',
+    'tribute_complete', 'tribute_timeout', 'borrow_wind_activate',
+  ];
   let bgmAudio = null;
   let bgmKey = '';
+
+  function prefetchSfx() {
+    for (const id of SFX_IDS) {
+      if (app.sfxRaw.has(id) || app.sfxBuffers.has(id) || app.sfxLoading.has(id)) continue;
+      app.sfxLoading.add(id);
+      fetch(`/sound-assets/${id}.wav?v=20261023p0final`)
+        .then((response) => {
+          if (!response.ok) throw new Error(String(response.status));
+          return response.arrayBuffer();
+        })
+        .then((buffer) => {
+          app.sfxRaw.set(id, buffer);
+          app.sfxLoading.delete(id);
+          try {
+            if (!app.audioCtx && !app.offlineCtx) {
+              const Ctor = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+              if (Ctor) app.offlineCtx = new Ctor(1, 1, 44100);
+            }
+            decodeSfx(app.audioCtx || app.offlineCtx);
+          } catch {}
+        })
+        .catch(() => { app.sfxLoading.delete(id); });
+    }
+  }
+
+  function decodeSfx(ctx) {
+    if (!ctx) return;
+    for (const [id, buffer] of app.sfxRaw) {
+      if (app.sfxBuffers.has(id)) continue;
+      ctx.decodeAudioData(buffer.slice(0)).then((decoded) => {
+        app.sfxBuffers.set(id, decoded);
+      }).catch(() => {});
+    }
+  }
 
   function sfxFor(kind, detail) {
     if (kind === 'play') return PLAY_SFX[detail] || 'play_single';
     const table = {
       finish: 'finish_hand',
-      landlord: 'identity_landlord',
-      doubleLandlord: 'identity_double_landlord',
       win: 'round_win',
       lose: 'round_lose',
       deal: 'deck_shuffle',
       dealCard: 'deal_card',
       selectCard: 'select_card',
-      pass: 'pass',
       firstRound: 'first_round_start',
       roundDraw: 'round_draw',
       tributeStart: 'tribute_start',
@@ -633,10 +687,21 @@
 
   function playSample(id, volume = 0.72) {
     if (!app.sound || !app.sfxSound || !id) return false;
+    const ctx = ensureAudio();
+    if (!ctx) return false;
+    const buffer = app.sfxBuffers.get(id);
+    if (!buffer) {
+      prefetchSfx();
+      return true;
+    }
     try {
-      const sample = new Audio(`/sound-assets/${id}.wav?v=20261023p0final`);
-      sample.volume = volume;
-      sample.play().catch(() => {});
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      gain.gain.value = volume;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.start(0);
       return true;
     } catch {
       return false;
@@ -674,6 +739,7 @@
     const track = BGM_TRACKS[wanted];
     if (!track) return;
     const player = ensureBgm();
+    player.volume = wanted === 'result' ? 0.58 : 0.32;
     if (bgmKey !== wanted) {
       bgmKey = wanted;
       player.src = track;
@@ -813,6 +879,28 @@
     }
     if (el['game-sound-dot']) el['game-sound-dot'].style.display = app.sound ? '' : 'none';
     updateAudioSettingsUi();
+  }
+
+  function updateThemeUi() {
+    for (const button of [el['home-theme-btn'], el['room-theme-btn'], el['game-theme-btn']]) {
+      if (!button) continue;
+      button.textContent = app.darkMode ? '☀' : '☾';
+      button.title = app.darkMode ? '关闭暗色模式' : '开启暗色模式';
+      button.setAttribute('aria-label', button.title);
+      button.setAttribute('aria-pressed', String(app.darkMode));
+    }
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = app.darkMode ? 'dark' : 'light';
+    document.body.classList.toggle('theme-dark', app.darkMode);
+    updateThemeUi();
+  }
+
+  function toggleDarkMode() {
+    app.darkMode = !app.darkMode;
+    localStorage.setItem(THEME_KEY, app.darkMode ? 'on' : 'off');
+    applyTheme();
   }
 
   function connect() {
@@ -1280,8 +1368,6 @@
         queuePlayFx(event);
       } else if (event.type === 'trick') {
         showToast(event.text, '', 2800);
-      } else if (event.type === 'pass' || event.type === 'auto_pass') {
-        playSound('pass');
       } else if (event.type === 'end') {
         // The result modal carries the final message.
       }
@@ -3348,7 +3434,6 @@
         ${cards ? `<div class="private-id-cards">${cards}</div>` : '<div class="private-id-seal">农</div>'}
       </div>
     `;
-    playSound(double ? 'doubleLandlord' : landlord ? 'landlord' : 'farmer');
     speakLine(landlord ? (double ? '你是双地主' : '你是地主') : '你是农民', { rate: 0.98, pitch: landlord ? 0.92 : 1.15 });
     clearTimeout(app.privateIdentityTimer);
     app.privateIdentityTimer = setTimeout(() => {
@@ -4240,7 +4325,6 @@
       );
       alert.classList.add('identity-from-seat');
     }
-    playSound('reveal');
 
     const flash = document.createElement('div');
     flash.className = 'identity-flash';
@@ -5811,7 +5895,9 @@
   function init() {
     cacheElements();
     bindEvents();
+    prefetchSfx();
     updateSoundUi();
+    applyTheme();
     updateFullscreenUi();
     updateStageScale();
     // 竖屏首次加载先静默尝试一次锁横屏（无手势时通常会失败，失败保留 guard）。
