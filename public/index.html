@@ -375,6 +375,20 @@
     </div>
   </div>
 
+  <div id="kick-confirm-modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-kick-confirm></div>
+    <div class="modal-card kick-confirm-card" role="dialog" aria-modal="true" aria-labelledby="kick-confirm-title">
+      <button type="button" class="modal-close" data-close-kick-confirm aria-label="关闭">×</button>
+      <p class="eyebrow"><span></span> REMOVE PLAYER</p>
+      <h2 id="kick-confirm-title">请出这位玩家？</h2>
+      <p id="kick-confirm-text" class="kick-confirm-text"></p>
+      <div class="kick-confirm-actions">
+        <button type="button" class="secondary-btn" data-close-kick-confirm>取消</button>
+        <button id="kick-confirm-submit" type="button" class="primary-btn">请出房间</button>
+      </div>
+    </div>
+  </div>
+
   <div id="audio-settings-modal" class="modal audio-settings-modal" hidden>
     <div class="modal-backdrop" data-close-audio-settings></div>
     <div class="modal-card audio-settings-card" role="dialog" aria-modal="true" aria-labelledby="audio-settings-title">

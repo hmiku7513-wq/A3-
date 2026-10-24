@@ -11534,3 +11534,21 @@ body.theme-dark .theme-toggle-btn{color:#c8ddff;border-color:rgba(143,180,230,.5
 .loading-skip.primary-btn{min-width:190px;min-height:48px;padding:0 30px;border-radius:14px;border:2px solid #fff0a7;background:linear-gradient(180deg,#ffd65b 0%,#ff9b35 52%,#f26b2c 100%);color:#fffbe2;font:900 16px/1 "Microsoft YaHei",sans-serif;box-shadow:0 5px 0 #bd441d,0 14px 28px rgba(129,39,12,.28);text-shadow:0 1px 0 rgba(92,29,8,.3)}
 .loading-skip.primary-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 .loading-skip.primary-btn:active{transform:translateY(3px);box-shadow:0 2px 0 #bd441d,0 6px 14px rgba(129,39,12,.2)}
+/* In-game kick confirmation without leaving fullscreen. */
+.kick-confirm-card{width:min(390px,calc(100vw - 32px));padding:28px 24px 22px;text-align:center}
+.kick-confirm-card h2{margin:4px 0 10px;color:#7f2e12;font-size:26px}
+.kick-confirm-text{margin:0 0 18px;color:#8a6942;font-size:13px;line-height:1.65}
+.kick-confirm-actions{display:flex;justify-content:center;gap:10px}
+.kick-confirm-actions .primary-btn,.kick-confirm-actions .secondary-btn{min-width:112px;min-height:40px}
+/* Add-AI fits one line on phone room cards. */
+.room-slot.empty .add-ai-btn{font-size:12px;white-space:nowrap;max-width:100%}
+@media(max-width:760px){.room-slot.empty .add-ai-btn{min-height:26px;padding:0 6px;font-size:9.5px;letter-spacing:0;border-radius:7px;line-height:1}}
+/* Room rule switches: center the knob inside the pill and the control inside its card. */
+#screen-room .table-rule-card{align-items:center}
+#screen-room .rule-switch{align-self:center;justify-content:center}
+#screen-room .switch-thumb{top:50%;left:3px;transform:translateY(-50%)}
+#screen-room .rule-switch.on .switch-thumb{transform:translate(20px,-50%)}
+@media(max-width:760px){
+  #screen-room .switch-thumb{left:2px}
+  #screen-room .rule-switch.on .switch-thumb{transform:translate(16px,-50%)}
+}

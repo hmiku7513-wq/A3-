@@ -224,6 +224,7 @@
       'home-audio-btn', 'room-audio-btn',
       'home-theme-btn', 'room-theme-btn', 'game-theme-btn',
       'audio-settings-modal', 'audio-master-toggle', 'audio-bgm-toggle', 'audio-sfx-toggle',
+      'kick-confirm-modal', 'kick-confirm-text', 'kick-confirm-submit',
       'audio-master-volume', 'audio-bgm-volume', 'audio-sfx-volume',
       'audio-master-volume-value', 'audio-bgm-volume-value', 'audio-sfx-volume-value',
       'audio-settings-hint',
@@ -487,6 +488,14 @@
     for (const node of document.querySelectorAll('[data-close-audio-settings]')) {
       node.addEventListener('click', closeAudioSettings);
     }
+    el['kick-confirm-submit'].addEventListener('click', () => {
+      const targetId = el['kick-confirm-modal'].dataset.playerId;
+      closeKickConfirm();
+      if (targetId) send({ type: 'kick', playerId: targetId });
+    });
+    for (const node of document.querySelectorAll('[data-close-kick-confirm]')) {
+      node.addEventListener('click', closeKickConfirm);
+    }
     el['audio-master-toggle'].addEventListener('change', () => setMasterSound(el['audio-master-toggle'].checked));
     el['audio-bgm-toggle'].addEventListener('change', () => setBgmEnabled(el['audio-bgm-toggle'].checked));
     el['audio-sfx-toggle'].addEventListener('change', () => setSfxEnabled(el['audio-sfx-toggle'].checked));
@@ -528,8 +537,11 @@
       if (!room || room.phase !== 'lobby' || room.hostId !== room.yourId) return;
       if (app.pending) return;
       const name = kick.dataset.kickName || '这名玩家';
-      if (!window.confirm(`确定把「${name}」请出房间吗？`)) return;
-      send({ type: 'kick', playerId: kick.dataset.kickPlayer });
+      if (kick.dataset.kickBot === 'true') {
+        send({ type: 'kick', playerId: kick.dataset.kickPlayer });
+        return;
+      }
+      openKickConfirm(kick.dataset.kickPlayer, name);
     });
     const resultRuleSwitch = (buttonId, property) => {
       el[buttonId].addEventListener('click', () => {
@@ -573,6 +585,8 @@
           closeFullscreenTip();
         } else if (el['audio-settings-modal'] && !el['audio-settings-modal'].hidden) {
           closeAudioSettings();
+        } else if (el['kick-confirm-modal'] && !el['kick-confirm-modal'].hidden) {
+          closeKickConfirm();
         } else if (el['home-join-modal'] && !el['home-join-modal'].hidden) {
           closeJoinModal();
         } else if (emoteMenuOpen()) {
@@ -966,6 +980,20 @@
 
   function closeAudioSettings() {
     el['audio-settings-modal'].hidden = true;
+    syncModalState();
+  }
+
+  function openKickConfirm(playerId, name) {
+    el['kick-confirm-modal'].dataset.playerId = playerId;
+    el['kick-confirm-text'].textContent = `确定把「${name}」请出房间吗？`;
+    el['kick-confirm-modal'].hidden = false;
+    syncModalState();
+    el['kick-confirm-submit'].focus({ preventScroll: true });
+  }
+
+  function closeKickConfirm() {
+    el['kick-confirm-modal'].hidden = true;
+    delete el['kick-confirm-modal'].dataset.playerId;
     syncModalState();
   }
 
@@ -2521,7 +2549,7 @@
       slots.push(`
         <div class="${classes}">
           <span class="slot-seat-number">SEAT 0${seat + 1}</span>
-          ${canKick ? `<button type="button" class="kick-btn" data-kick-player="${esc(player.id)}" data-kick-name="${esc(player.name)}" title="请出房间" aria-label="把 ${esc(player.name)} 请出房间">×</button>` : ''}
+          ${canKick ? `<button type="button" class="kick-btn" data-kick-player="${esc(player.id)}" data-kick-name="${esc(player.name)}" data-kick-bot="${player.isBot ? 'true' : 'false'}" title="请出房间" aria-label="把 ${esc(player.name)} 请出房间">×</button>` : ''}
           <div class="slot-avatar"${avatarAttr(player)} style="--hue:${hueFor(seat, player.name)}">${initial(player.name)}</div>
           <p class="slot-name" title="${esc(player.name)}">${esc(player.name)}</p>
           <div class="slot-meta">${badges.join('')}</div>
@@ -4366,7 +4394,8 @@
       (el['result-modal'] && !el['result-modal'].hidden) ||
       (el['counter-modal'] && !el['counter-modal'].hidden) ||
       (el['home-join-modal'] && !el['home-join-modal'].hidden) ||
-      (el['audio-settings-modal'] && !el['audio-settings-modal'].hidden),
+      (el['audio-settings-modal'] && !el['audio-settings-modal'].hidden) ||
+      (el['kick-confirm-modal'] && !el['kick-confirm-modal'].hidden),
     );
     document.body.classList.toggle('modal-open', open);
   }
