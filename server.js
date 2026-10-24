@@ -16,6 +16,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const LOBBY_DISCONNECT_GRACE_MS = 60_000;
+const DISCONNECT_AUTO_TRUST_MS = 5_000;
 const OFFLINE_AUTO_PLAY_MS = 10_000;
 const NO_MOVE_AUTO_PASS_MS = 3_000;
 
@@ -164,6 +165,23 @@ function clearDisconnectTimer(player) {
   if (player.disconnectTimer) {
     clearTimeout(player.disconnectTimer);
     player.disconnectTimer = null;
+  }
+}
+
+function clearAutoTrustTimer(player) {
+  if (player.autoTrustTimer) {
+    clearTimeout(player.autoTrustTimer);
+    player.autoTrustTimer = null;
+  }
+}
+
+function enableAutoTrust(player, reason) {
+  if (!player || player.isBot) return;
+  if (!player.autoPlay) {
+    player.autoPlay = true;
+    player.autoTrustReason = reason;
+  } else if (!player.autoTrustReason) {
+    player.autoTrustReason = reason;
   }
 }
 
@@ -326,6 +344,9 @@ function scheduleAuto(room) {
     }
 
     try {
+      if (kind === 'timeout' && player && !player.isBot) {
+        enableAutoTrust(player, 'idle');
+      }
       if (kind === 'bot' || kind === 'trusted') {
         const move = game.pickAutoMove(seat);
         const auto = kind === 'trusted';
@@ -837,6 +858,7 @@ function startGame(room, starter) {
 
 function removePlayer(room, player) {
   clearDisconnectTimer(player);
+  clearAutoTrustTimer(player);
   const index = room.players.findIndex((entry) => entry.id === player.id);
   if (index === -1) return;
   // 个人累计积分跟人走、不跟座位走：压缩座位前先按玩家 id 暂存。
@@ -910,6 +932,11 @@ function attachPlayerSocket(room, player, ws) {
     player.ws.close(4001, 'logged in elsewhere');
   }
   clearDisconnectTimer(player);
+  clearAutoTrustTimer(player);
+  if (player.autoTrustReason === 'disconnect') {
+    player.autoPlay = false;
+    player.autoTrustReason = null;
+  }
   player.ws = ws;
   player.connected = true;
   player.lastSeen = Date.now();
@@ -1256,6 +1283,53 @@ function handleBorrowWindVote(ws, message) {
  * - 大厅 / 结算页可踢,被踢玩家收到 kicked 消息并被断开连接;
  * - 对局 / 供牌中不允许踢人,由房主改用托管或等本局结束。
  */
+function handleAddBot(ws) {
+  const context = socketContext(ws);
+  if (!context) return;
+  const { room, player } = context;
+  if (room.phase !== 'lobby') {
+    sendError(ws, '已经开打啦，回大厅再加电脑吧。', 'BAD_PHASE');
+    return;
+  }
+  if (player.id !== room.hostId) {
+    sendError(ws, '只有房主能加电脑哦！', 'NOT_HOST');
+    return;
+  }
+  if (room.singlePlayer) {
+    sendError(ws, '单机牌桌已经是电脑局啦。', 'SINGLE_PLAYER_ONLY');
+    return;
+  }
+  if (room.players.length >= 4) {
+    sendError(ws, '这桌已经坐满啦！', 'ROOM_FULL');
+    return;
+  }
+  const seat = nextFreeSeat(room);
+  if (seat < 0) {
+    sendError(ws, '没有空座啦！', 'ROOM_FULL');
+    return;
+  }
+  const names = ['小乐', '阿福', '圆圆', '小满', '阿青', '小竹'];
+  const base = names[room.players.filter((entry) => entry.isBot).length % names.length];
+  const bot = {
+    id: `bot-${randomUUID()}`,
+    token: null,
+    name: uniqueName(room, base),
+    seat,
+    ready: true,
+    connected: true,
+    isBot: true,
+    autoPlay: false,
+    avatar: null,
+    ws: null,
+    joinedAt: Date.now(),
+    lastSeen: Date.now(),
+  };
+  room.players.push(bot);
+  markRoomChanged(room);
+  broadcastLobby(room);
+  log(`room ${room.code}: host added bot ${bot.name} (${room.players.length}/4)`);
+}
+
 function handleKick(ws, message) {
   const context = socketContext(ws);
   if (!context) return;
@@ -1320,6 +1394,7 @@ function handleTrust(ws, message) {
   player.autoPlay = Object.prototype.hasOwnProperty.call(message, 'enabled')
     ? Boolean(message.enabled)
     : !player.autoPlay;
+  player.autoTrustReason = player.autoPlay ? 'manual' : null;
   touch(room);
   if (room.phase === 'tribute') broadcastTribute(room);
   else broadcastGame(room);
@@ -1654,6 +1729,23 @@ function handleClose(ws) {
   player.lastSeen = Date.now();
   touch(room);
 
+  clearAutoTrustTimer(player);
+  if (room.phase === 'playing' || room.phase === 'tribute') {
+    player.autoTrustTimer = setTimeout(() => {
+      player.autoTrustTimer = null;
+      if (player.connected || !room.players.includes(player)) return;
+      if (room.phase === 'playing') {
+        enableAutoTrust(player, 'disconnect');
+        touch(room);
+        broadcastGame(room);
+      } else if (room.phase === 'tribute') {
+        enableAutoTrust(player, 'disconnect');
+        touch(room);
+        broadcastTribute(room);
+      }
+    }, DISCONNECT_AUTO_TRUST_MS);
+  }
+
   if (room.phase === 'lobby') {
     broadcastLobby(room);
     clearDisconnectTimer(player);
@@ -1713,6 +1805,9 @@ function handleMessage(ws, text) {
       break;
     case 'kick':
       handleKick(ws, message);
+      break;
+    case 'add_bot':
+      handleAddBot(ws);
       break;
     case 'borrow_wind':
       handleBorrowWindVote(ws, message);
@@ -1871,7 +1966,10 @@ async function closeForTests() {
   for (const room of rooms.values()) {
     clearAuto(room);
     clearTributeTimers(room);
-    for (const player of room.players) clearDisconnectTimer(player);
+    for (const player of room.players) {
+      clearDisconnectTimer(player);
+      clearAutoTrustTimer(player);
+    }
   }
   for (const ws of [...sockets]) {
     try {

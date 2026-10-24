@@ -18,7 +18,7 @@
   <title>A3 · 欢乐暗牌</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/happy.css">
-  <link rel="stylesheet" href="/palace.css?v=20261023e">
+  <link rel="stylesheet" href="/palace.css?v=20261023g">
 </head>
 <body>
   <div class="ambient" aria-hidden="true"></div>
@@ -26,9 +26,10 @@
 
   <div id="loading-screen" class="loading-screen" role="status" aria-live="polite">
     <div class="loading-crest" aria-hidden="true"><span>♠</span><span>♥</span><span>♣</span><span>♦</span></div>
-    <p class="loading-title">正在铺开牌桌…</p>
+    <p class="loading-title">一副好牌，等你开场</p>
+    <p class="loading-status">正在加载音频资源中…</p>
     <span class="loading-orbit" aria-hidden="true"></span>
-    <p class="loading-note">把宫灯点亮，等牌局入席</p>
+    <button id="loading-skip" class="loading-skip" type="button">立即进入游戏</button>
   </div>
 
   <main id="app">
@@ -507,7 +508,8 @@
       <p>如果当前在微信或 App 内置浏览器里，请复制下面的网址，粘贴到手机自带的 Safari / Chrome 打开，再点游戏右上角的全屏按钮。</p>
       <code id="fullscreen-tip-url"></code>
       <div class="fullscreen-tip-actions">
-        <button id="copy-fullscreen-link" type="button" class="primary-btn">复制当前链接</button>
+        <button id="copy-fullscreen-mobile" type="button" class="primary-btn">复制到手机浏览器打开</button>
+        <button id="copy-fullscreen-link" type="button" class="secondary-btn">复制当前链接</button>
         <button id="continue-fullscreen" type="button" class="secondary-btn">仍然尝试全屏</button>
         <button id="close-fullscreen-tip" type="button" class="mini-btn">知道了</button>
       </div>
@@ -727,6 +729,7 @@
     </div>
   </template>
 
-  <script src="/app.js?v=20261023e" defer></script>
+  <script src="/app.js?v=20261023g" defer></script>
+  <script src="/loading-fallback.js?v=20261023b" defer></script>
 </body>
 </html>

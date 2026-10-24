@@ -241,7 +241,7 @@
       'tribute-fly-layer', 'play-animation', 'private-identity',
       'orientation-guard', 'orientation-fullscreen-btn',
       'tribute-fullscreen-btn',
-      'fullscreen-tip', 'fullscreen-tip-url', 'copy-fullscreen-link',
+      'fullscreen-tip', 'fullscreen-tip-url', 'copy-fullscreen-link', 'copy-fullscreen-mobile',
       'tutorial-match', 'tutorial-match-close', 'tutorial-progress', 'tutorial-rules-btn',
       'tutorial-seats', 'tutorial-turn', 'tutorial-played', 'tutorial-scene-rule',
       'tutorial-match-hand', 'tutorial-scene-eyebrow', 'tutorial-scene-title',
@@ -370,6 +370,7 @@
       enterFullscreen();
     });
     el['copy-fullscreen-link'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
+    el['copy-fullscreen-mobile'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
     el['continue-fullscreen'].addEventListener('click', continueFullscreen);
     el['close-fullscreen-tip'].addEventListener('click', closeFullscreenTip);
     el['tutorial-match-close'].addEventListener('click', closeTutorialMatch);
@@ -512,6 +513,14 @@
       openGiftMenu(Number(basket.dataset.seat), basket);
     });
     el['room-slots'].addEventListener('click', (event) => {
+      const addAi = event.target.closest('[data-add-ai]');
+      if (addAi) {
+        const room = app.room;
+        if (!room || room.phase !== 'lobby' || room.hostId !== room.yourId) return;
+        if (app.pending) return;
+        send({ type: 'add_bot' });
+        return;
+      }
       const kick = event.target.closest('[data-kick-player]');
       if (!kick) return;
       const room = app.room;
@@ -2470,6 +2479,7 @@
     el['room-code-display'].textContent = room.code;
     el['room-code-display'].setAttribute('aria-label', `房间号 ${room.code}`);
     const hostCanKick = room.hostId === room.yourId && !room.singlePlayer;
+    const hostCanAddAi = room.hostId === room.yourId && !room.singlePlayer && room.phase === 'lobby';
     const slots = [];
     for (let seat = 0; seat < 4; seat += 1) {
       const player = playerAtSeat(seat);
@@ -2480,6 +2490,7 @@
             <div class="slot-avatar">+</div>
             <p class="slot-name">等朋友来</p>
             <div class="slot-meta">空位</div>
+            ${hostCanAddAi ? `<button type="button" class="add-ai-btn" data-add-ai="${seat}">＋ 加电脑</button>` : ''}
           </div>
         `);
         continue;
@@ -2495,6 +2506,7 @@
         player.connected === false ? 'offline' : '',
       ].filter(Boolean).join(' ');
       const badges = [];
+      if (player.isBot) badges.push('<span class="bot-badge">电脑</span>');
       if (isHost) badges.push('<span class="host-badge">♛ 房主</span>');
       if (isYou) badges.push('<span class="you-badge">你</span>');
       if (!isHost) {
@@ -2697,7 +2709,7 @@
     if (!el['fullscreen-tip']) return;
     el['fullscreen-tip-url'].textContent = location.href;
     el['fullscreen-tip'].hidden = false;
-    el['copy-fullscreen-link'].focus({ preventScroll: true });
+    el['copy-fullscreen-mobile'].focus({ preventScroll: true });
   }
 
   function closeFullscreenTip() {
@@ -5994,10 +6006,17 @@
     const initialAssets = Promise.allSettled([prefetchSfx(), prefetchBgm()]);
     updateSoundUi();
     applyTheme();
-    window.addEventListener('load', () => {
-      Promise.allSettled([initialAssets, new Promise((resolve) => setTimeout(resolve, 500))])
+    const loadingSkip = document.getElementById('loading-skip');
+    if (loadingSkip) loadingSkip.addEventListener('click', closeLoadingScreen);
+    const finishLoading = () => {
+      const maxWait = new Promise((resolve) => setTimeout(resolve, 5000));
+      Promise.allSettled([Promise.race([initialAssets, maxWait]), new Promise((resolve) => setTimeout(resolve, 400))])
         .then(closeLoadingScreen);
-    });
+    };
+    if (document.readyState === 'complete') finishLoading();
+    else window.addEventListener('load', finishLoading, { once: true });
+    // Absolute fallback: never trap the player on the loading veil.
+    setTimeout(closeLoadingScreen, 9000);
     updateFullscreenUi();
     updateStageScale();
     // 竖屏首次加载先静默尝试一次锁横屏（无手势时通常会失败，失败保留 guard）。

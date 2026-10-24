@@ -11519,3 +11519,12 @@ body.theme-dark .theme-toggle-btn{color:#c8ddff;border-color:rgba(143,180,230,.5
 /* Home/room note glyph matches the in-game note glyph size. */
 .landing-header-actions .audio-note-btn,.header-actions .audio-note-btn{font-size:22px}
 @media(max-width:760px){.landing-header-actions .audio-note-btn,.header-actions .audio-note-btn{font-size:20px}}
+/* Host can fill an empty room seat with an AI player. */
+.room-slot.empty .add-ai-btn{margin-top:9px;min-height:30px;padding:0 12px;border:1px solid #c7933c;border-radius:9px;background:linear-gradient(180deg,#fff4c7,#f2d287);color:#6e370e;font:900 12px/1 inherit;cursor:pointer;box-shadow:0 2px 0 rgba(92,49,10,.2)}
+.room-slot.empty .add-ai-btn:hover{filter:brightness(1.06);border-color:#9a5d10}
+.room-slot.empty .add-ai-btn:active{transform:translateY(1px)}
+.room-slot .bot-badge{display:inline-flex;align-items:center;justify-content:center;min-height:20px;padding:2px 7px;border:1px solid #9bc5e8;border-radius:999px;background:#eaf6ff;color:#356b97;font-size:11px;font-weight:900}
+.loading-skip{margin-top:2px;padding:7px 16px;border:1px solid rgba(255,216,112,.5);border-radius:999px;background:rgba(5,28,48,.5);color:#ffe8a8;font:800 12px/1 "Microsoft YaHei",sans-serif;cursor:pointer}
+.loading-skip:hover{border-color:#ffe08a;background:rgba(255,216,112,.1)}
+.loading-status{margin:-4px 0 2px;color:#a9c9de;font-size:12px;letter-spacing:.08em}
+.loading-skip{margin-top:0}
