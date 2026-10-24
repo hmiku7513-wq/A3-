@@ -11528,3 +11528,9 @@ body.theme-dark .theme-toggle-btn{color:#c8ddff;border-color:rgba(143,180,230,.5
 .loading-skip:hover{border-color:#ffe08a;background:rgba(255,216,112,.1)}
 .loading-status{margin:-4px 0 2px;color:#a9c9de;font-size:12px;letter-spacing:.08em}
 .loading-skip{margin-top:0}
+/* Orientation guard: same mobile browser handoff option as fullscreen tip. */
+.orientation-card .orientation-copy-btn{display:block;width:100%;min-height:42px;margin-top:8px;border-radius:12px;font-size:12px}
+/* Loading page: primary-sized immediate-entry button. */
+.loading-skip.primary-btn{min-width:190px;min-height:48px;padding:0 30px;border-radius:14px;border:2px solid #fff0a7;background:linear-gradient(180deg,#ffd65b 0%,#ff9b35 52%,#f26b2c 100%);color:#fffbe2;font:900 16px/1 "Microsoft YaHei",sans-serif;box-shadow:0 5px 0 #bd441d,0 14px 28px rgba(129,39,12,.28);text-shadow:0 1px 0 rgba(92,29,8,.3)}
+.loading-skip.primary-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.loading-skip.primary-btn:active{transform:translateY(3px);box-shadow:0 2px 0 #bd441d,0 6px 14px rgba(129,39,12,.2)}

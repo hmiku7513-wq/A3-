@@ -239,7 +239,7 @@
       'toast-layer', 'identity-alert-layer',
       'deal-animation', 'finish-animation', 'role-claim-layer',
       'tribute-fly-layer', 'play-animation', 'private-identity',
-      'orientation-guard', 'orientation-fullscreen-btn',
+      'orientation-guard', 'orientation-fullscreen-btn', 'orientation-copy-btn',
       'tribute-fullscreen-btn',
       'fullscreen-tip', 'fullscreen-tip-url', 'copy-fullscreen-link', 'copy-fullscreen-mobile',
       'tutorial-match', 'tutorial-match-close', 'tutorial-progress', 'tutorial-rules-btn',
@@ -369,6 +369,7 @@
       // guard 里的“进入全屏”属于用户手势，直接尝试全屏 + 锁横屏。
       enterFullscreen();
     });
+    el['orientation-copy-btn'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
     el['copy-fullscreen-link'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
     el['copy-fullscreen-mobile'].addEventListener('click', () => copyText(location.href, '链接已复制，粘贴到手机浏览器打开'));
     el['continue-fullscreen'].addEventListener('click', continueFullscreen);
